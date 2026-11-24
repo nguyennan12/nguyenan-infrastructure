@@ -14,6 +14,7 @@ apt-get install -y \
     ca-certificates \
     gnupg \
     unzip \
+    cron \
     restic \
     rclone \
     unattended-upgrades

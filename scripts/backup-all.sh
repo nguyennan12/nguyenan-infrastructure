@@ -2,8 +2,18 @@
 
 set -uo pipefail
 
-BASE="/opt/infra/backup"
+BASE="${BACKUP_DIR:-/opt/infra/backup}"
 FAILED=0
+
+if [ "${BACKUP_LOCK_HELD:-0}" != "1" ]; then
+    exec 9>"$BASE/backup.lock"
+    flock -n 9 || {
+        echo "Another backup, deployment or infrastructure update is running." >&2
+        exit 1
+    }
+fi
+
+export BACKUP_LOCK_HELD=1
 
 echo "===== FULL BACKUP STARTED: $(date -Is) ====="
 

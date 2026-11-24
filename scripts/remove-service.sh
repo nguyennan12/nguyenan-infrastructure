@@ -26,7 +26,7 @@ shift
 
 validate_project "$PROJECT"
 init_project_paths "$PROJECT"
-acquire_project_lock
+acquire_destructive_project_locks
 require_managed_project
 
 REMOVE_POSTGRES=false

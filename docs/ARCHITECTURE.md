@@ -68,20 +68,26 @@ PostgreSQL: database and login role per project, explicit CONNECT restrictions; 
 
 Use localhost binding for tunnels. Keep administrative access separate from public application endpoints.
 
-## Control plane
+## Deployment control plane
 
 ```mermaid
-flowchart LR
-  M[main] --> C[GitHub Actions validation]
-  C --> P[production]
-  P --> D[Dockhand polling]
-  P --> S[systemd infra-sync.timer]
-  D --> T[Compose stacks]
-  S --> I[Installed scripts and modules]
-  I --> B[Backup and provisioning]
+flowchart TD
+  C[Shared Compose stacks and scripts]
+  C --> G[GitOps mode]
+  C --> S[Standalone mode]
+  G --> D[Dockhand owns Compose stacks]
+  G --> Y[systemd sync owns installed scripts]
+  S --> CLI[deploy.sh owns Compose stacks]
+  S --> U[manual update.sh]
+  D --> T[infra projects and existing volumes]
+  CLI --> T
 ```
 
-Dockhand and script sync are independent. Stack secrets remain in Dockhand or restricted local files. Script sync uses a read-only deploy key and installs allowlisted files, not arbitrary configuration or secrets; it does not update itself automatically. Provisioning is modular; each project has a protected `.env` and `project.json` service flags/status in `/opt/infra/projects/<name>/`.
+`/opt/infra/deployment.env` explicitly selects ownership for new installations. Its absence on an existing installation does not imply Standalone mode. Standalone records ownership in `/opt/infra/state/deployment-owner` and refuses to operate when Dockhand is present. No automatic ownership conversion exists.
+
+Portable secrets are split by stack under `/opt/infra/secrets`; Docker Compose reads them through explicit `--env-file` arguments. GitOps users must copy the required values to Dockhand's stack environment because Dockhand does not automatically read host files. Existing production secrets remain in Dockhand.
+
+Dockhand and script sync remain independent. Script sync uses a read-only deploy key and installs allowlisted files, not arbitrary configuration or secrets; it does not update itself automatically. Provisioning is modular; each project has a protected `.env` and `project.json` service flags/status in `/opt/infra/projects/<name>/`.
 
 ## Resource baseline (24 November 2026)
 

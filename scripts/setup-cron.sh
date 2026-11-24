@@ -6,6 +6,21 @@ BACKUP_DIR="/opt/infra/backup"
 test -x "$BACKUP_DIR/backup-all.sh"
 test -x "$BACKUP_DIR/maintenance.sh"
 
+if crontab -l 2>/dev/null |
+   grep -Eq '/opt/infra/backup/(backup-all|maintenance)\.sh'; then
+    echo "Existing root crontab backup schedule detected; refusing to create a duplicate." >&2
+    exit 1
+fi
+
+for schedule_file in /etc/crontab /etc/cron.d/*; do
+    [ -f "$schedule_file" ] || continue
+    [ "$schedule_file" != /etc/cron.d/infra-backup ] || continue
+    if grep -Eq '/opt/infra/backup/(backup-all|maintenance)\.sh' "$schedule_file"; then
+        echo "Existing backup schedule detected in $schedule_file; refusing to create a duplicate." >&2
+        exit 1
+    fi
+done
+
 cat > /etc/cron.d/infra-backup <<'EOF'
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

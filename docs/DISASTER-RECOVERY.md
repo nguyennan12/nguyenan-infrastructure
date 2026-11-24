@@ -26,16 +26,40 @@ done
 
 Use explicit snapshot IDs instead of latest when recovering to a chosen time. Restored files are plaintext and contain secrets; restrict access and remove test copies after validation.
 
+On a fresh recovery host, `setup-backup.sh --restore` can import the original `rclone.conf`, repository URL, source host and Restic password. It verifies access and lists snapshots. It cannot generate a replacement password, run `restic init` or enable cron. If any original credential is missing, stop and recover it from the separately protected copy; creating a new credential will not unlock the repository.
+
 ## Restore services on a separate host
 
-1. Use the repository and recovered Dockhand archive to reconstruct deployment settings. Docker inspect JSON is reference metadata, not an executable Compose replacement. Review absolute bind paths, images, networks, volumes and secrets. Restore Dockhand data only while Dockhand is stopped. Restore Traefik dynamic configuration and certificate volume with proper permissions, or obtain fresh certificates.
+1. Use the repository and recovered deployment configuration to reconstruct settings. Docker inspect JSON is reference metadata, not an executable Compose replacement. Review absolute bind paths, images, networks, volumes and secrets. Restore Dockhand data only when the selected backup contains it and only while Dockhand is stopped. Standalone backups legitimately omit Dockhand. Restore Traefik dynamic configuration and certificate volume with proper permissions, or obtain fresh certificates.
    - **Infrastructure domain restoration**: `scripts/restore-infra.sh` handles `/opt/infra/infrastructure.env`. If the destination VPS already has `/opt/infra/infrastructure.env` configured (e.g., targeting a new recovery domain), it is preserved. If not present on the host, it is restored from the backup with permissions `600` (root:root). When restoring from an older backup snapshot without `infrastructure.env`, create `/opt/infra/infrastructure.env` manually (`INFRA_DOMAIN=example.com`).
    - In Dockhand, verify `INFRA_DOMAIN` matches the target domain for `infra-database`, `infra-cache`, and `infra-storage`.
    - Update DNS records for `postgres`, `redis`, and `minio` subdomains to point to the recovery VPS IP.
 2. PostgreSQL: restore the SQL dump into a fresh compatible test cluster, not the live cluster. The dump contains global roles and database creation statements. Use a distinct bootstrap superuser to avoid duplicate-role conflicts, inspect the existing `postgres` database statements and resolve conflicts before restoring. Execute with `psql -X -v ON_ERROR_STOP=1`, verify all databases, roles, ownership, row counts and PgBouncer auth. Do not reapply setup-auth.sql if restored already.
 3. Redis: recover `redis.rdb` and `users.acl` into the intended data volume while stopped. For a fresh recovery volume start with AOF disabled so Redis loads RDB, validate keys/ACLs, then enable AOF and verify rewrite completion before restoring the normal AOF-enabled Compose configuration. Do not leave stale AOF files that override the restored RDB. Restore correct Redis ownership/permissions and admin backup secret.
 4. MinIO: deploy compatible MinIO with recovered root credentials. Recreate buckets, import bucket/IAM metadata with matching `mc admin cluster ... import` commands (check version-specific help), restore server configuration selectively, mirror objects into the correct buckets and verify application IAM. Empty buckets, version history, object metadata and service-account recovery require explicit validation.
-5. Redeploy remaining services, verify permissions and TLS, configure SSH tunnels and NSG. Cut over DNS only after testing. Reenable backups with original credentials; check new snapshots and schedule.
+5. Confirm the intended deployment owner before starting services. `restore-infra.sh` creates a protected `restore-prepared` marker only after its explicit restore confirmation; this allows Standalone to use explicitly restored named volumes and the temporary PostgreSQL container without silently adopting unrelated resources.
+
+   For Standalone, use this order:
+
+   1. Run `restore-infra.sh` and inspect the restored deployment configuration and secrets.
+   2. Run `restore-redis.sh` while the Redis container does not exist. This creates the Redis data volume with the recovered RDB and ACL.
+   3. Start only PostgreSQL with project name `infra-database` and the restored `infrastructure.env` plus `secrets/database.env`; do not start PgBouncer yet.
+   4. Run `restore-postgres.sh` against that fresh PostgreSQL container. The dump restores the existing PgBouncer authentication role, so do not apply `setup-auth.sql` first.
+   5. Run `deploy.sh`. The restore marker permits the explicit temporary PostgreSQL container and restored volumes; deployment validates the restored PgBouncer credential, starts Redis and MinIO, then removes the marker after success.
+   6. Run `restore-minio.sh` against the running empty MinIO service.
+   7. Verify application data, IAM/ACL isolation and TLS before enabling cron or changing DNS.
+
+   Example for step 3:
+
+   ```bash
+   docker compose --project-name infra-database \
+     --env-file /opt/infra/infrastructure.env \
+     --env-file /opt/infra/secrets/database.env \
+     --file /opt/infra/repository/stacks/database.yml \
+     up -d postgres
+   ```
+
+   For GitOps, restore Dockhand while stopped and register/verify stacks before enabling its synchronization. Never allow both controllers to start the same stacks. Reenable backups only after recovery verification.
 
 ## Validation status
 
@@ -59,12 +83,12 @@ Review every service result, snapshot age and available Google Drive capacity. K
 | backup-postgres.sh | pg_dumpall, including roles and databases |
 | backup-redis.sh | RDB, redis-check-rdb, persistent users.acl |
 | backup-minio.sh | Current objects, bucket/IAM metadata, configuration reference |
-| backup-infra.sh | Docker metadata, Dockhand and ACME archives, configs, project metadata and protected backup configuration |
+| backup-infra.sh | Docker metadata, optional Dockhand archive, ACME archive, deployment config, portable secrets, project metadata and protected backup configuration |
 | maintenance.sh | Integrity check, retention and prune |
 | restore-all.sh / restore-infra.sh | Recover selected snapshots/config and empty volumes on a separate host |
 | restore-postgres.sh / restore-redis.sh / restore-minio.sh | Service-specific restore steps; inspect actual script arguments first |
 
-Backup scripts run from `/opt/infra/backup`; management/restore scripts are installed under `/opt/infra/scripts`. Source host is `vps-nguyenan`. Snapshot tags: `postgresql`, `redis`, `minio`, `infrastructure`. Restore related snapshots from the same intended backup run, not blindly the latest per tag. Infrastructure backup includes sensitive Docker inspect output, backup credentials and `/opt/infra/projects`; Dockhand may briefly stop during backup. Restore only into empty intended volumes; isolate recovered Dockhand before starting so it cannot auto-deploy unexpectedly. The restored cron configuration must be reviewed before enabling jobs.
+Backup scripts run from `/opt/infra/backup`; management/restore scripts are installed under `/opt/infra/scripts`. Source host is `vps-nguyenan`. Snapshot tags: `postgresql`, `redis`, `minio`, `infrastructure`. Restore related snapshots from the same intended backup run, not blindly the latest per tag. Infrastructure backup includes sensitive Docker inspect output, backup credentials, portable secrets and `/opt/infra/projects`; Dockhand may briefly stop during a GitOps backup. Restore only into empty intended volumes; isolate recovered Dockhand before starting so it cannot auto-deploy unexpectedly. Restore order is infrastructure configuration, PostgreSQL, Redis, MinIO, deployment controller, verification, then backup schedule. The restored cron configuration must be reviewed before enabling jobs.
 
 On the current host, inspect the repository without printing credentials:
 

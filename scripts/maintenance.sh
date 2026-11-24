@@ -8,7 +8,10 @@ BASE="/opt/infra/backup"
 source "$BASE/.env"
 
 exec 9>"$BASE/backup.lock"
-flock -n 9 || exit 1
+flock -n 9 || {
+  echo "Another backup, deployment or infrastructure update is running." >&2
+  exit 1
+}
 
 echo "===== Maintenance started: $(date -Is) ====="
 

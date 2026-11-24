@@ -19,7 +19,10 @@ install -d -m 700 "$SCRIPTS_DIR"
 install -d -m 700 "$BACKUP_DIR"
 
 exec 9>"$STATE_DIR/sync.lock"
-flock -n 9 || exit 0
+flock -n 9 || {
+    echo "Another infrastructure sync is already running."
+    exit 0
+}
 
 echo "===== Infrastructure sync: $(date -Is) ====="
 
@@ -110,6 +113,9 @@ MANAGEMENT_SCRIPTS=(
     setup-backup.sh
     setup-cron.sh
     setup-minio-client.sh
+    setup-secrets.sh
+    deploy.sh
+    update.sh
     create-project.sh
     list-projects.sh
     delete-project.sh

@@ -6,13 +6,25 @@ umask 077
 BASE="/opt/infra/backup"
 STAGING="$BASE/staging/infrastructure"
 PROJECTS_DIR="/opt/infra/projects"
+DOCKHAND_WAS_RUNNING=false
 
 source "$BASE/.env"
 
-exec 9>"$BASE/backup.lock"
-flock -n 9 || exit 1
+if [ "${BACKUP_LOCK_HELD:-0}" != "1" ]; then
+    exec 9>"$BASE/backup.lock"
+    flock -n 9 || { echo "Another backup, deployment or infrastructure update is running." >&2; exit 1; }
+fi
 
 echo "===== Infrastructure backup started: $(date -Is) ====="
+
+cleanup() {
+    if [ "$DOCKHAND_WAS_RUNNING" = "true" ]; then
+        docker start dockhand >/dev/null 2>&1 || true
+    fi
+    rm -rf -- "$STAGING"
+}
+
+trap cleanup EXIT
 
 rm -rf "$STAGING"
 
@@ -41,22 +53,26 @@ docker volume ls -q |
 docker images --digests \
     > "$STAGING/docker/images.txt"
 
-# Backup Dockhand consistently
-echo "Backing up Dockhand..."
+# Backup Dockhand only when it is installed. Standalone mode has no such volume.
+if docker container inspect dockhand >/dev/null 2>&1 &&
+   docker volume inspect dockhand_data >/dev/null 2>&1; then
+    echo "Backing up Dockhand..."
+    DOCKHAND_PATH=$(docker volume inspect -f '{{.Mountpoint}}' dockhand_data)
+    DOCKHAND_WAS_RUNNING="$(docker inspect -f '{{.State.Running}}' dockhand)"
 
-DOCKHAND_PATH=$(docker volume inspect \
-    -f '{{.Mountpoint}}' dockhand_data)
+    if [ "$DOCKHAND_WAS_RUNNING" = "true" ]; then
+        docker stop dockhand
+    fi
 
-trap 'docker start dockhand >/dev/null 2>&1 || true' EXIT
+    tar -cf "$STAGING/volumes/dockhand.tar" -C "$DOCKHAND_PATH" .
 
-docker stop dockhand
-
-tar -cf "$STAGING/volumes/dockhand.tar" \
-    -C "$DOCKHAND_PATH" .
-
-docker start dockhand
-
-trap - EXIT
+    if [ "$DOCKHAND_WAS_RUNNING" = "true" ]; then
+        docker start dockhand
+        DOCKHAND_WAS_RUNNING=false
+    fi
+else
+    echo "Dockhand is not installed; skipping its optional data volume."
+fi
 
 # Backup Traefik certificates
 echo "Backing up Traefik certificates..."
@@ -100,6 +116,17 @@ else
     echo "Warning: /opt/infra/infrastructure.env not found. Skipping."
 fi
 
+if [ -f /opt/infra/deployment.env ]; then
+    echo "Backing up deployment ownership configuration..."
+    install -m 600 /opt/infra/deployment.env "$STAGING/config/deployment.env"
+fi
+
+if [ -d /opt/infra/secrets ]; then
+    echo "Backing up portable stack secrets inside the encrypted repository..."
+    cp -a /opt/infra/secrets "$STAGING/config/secrets"
+    chmod -R go-rwx "$STAGING/config/secrets"
+fi
+
 # Backup project credentials and policies
 if [ -d "$PROJECTS_DIR" ]; then
     echo "Backing up project configurations..."
@@ -134,5 +161,6 @@ restic -o rclone.timeout=5m \
 
 # Cleanup
 rm -rf "$STAGING"
+trap - EXIT
 
 echo "===== Infrastructure backup completed: $(date -Is) ====="

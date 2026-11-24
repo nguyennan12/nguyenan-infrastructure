@@ -3,10 +3,15 @@
 set -euo pipefail
 umask 077
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+
 if [ "$EUID" -ne 0 ]; then
     echo "Please run with sudo."
     exit 1
 fi
+
+acquire_restore_locks
 
 if [ "$#" -ne 1 ]; then
     echo "Usage: $0 /path/to/infrastructure-backup"
@@ -21,7 +26,6 @@ PROJECTS_DIR="$INFRA_DIR/projects"
 echo "===== Infrastructure restore started: $(date -Is) ====="
 
 # Validate backup files
-test -s "$BACKUP_DIR/volumes/dockhand.tar"
 test -s "$BACKUP_DIR/volumes/traefik-certs.tar"
 
 test -d "$BACKUP_DIR/config"
@@ -86,12 +90,14 @@ restore_volume() {
     echo "Volume restored: $volume"
 }
 
-# Restore Dockhand data
+# Restore optional control-plane and required certificate data
 echo "[1/5] Restoring Docker volumes..."
 
-restore_volume \
-    dockhand_data \
-    "$BACKUP_DIR/volumes/dockhand.tar"
+if [ -s "$BACKUP_DIR/volumes/dockhand.tar" ]; then
+    restore_volume dockhand_data "$BACKUP_DIR/volumes/dockhand.tar"
+else
+    echo "Dockhand archive not present; treating this as a Standalone or older compatible backup."
+fi
 
 restore_volume \
     infra-gateway_traefik_certs \
@@ -105,6 +111,7 @@ install -d -m 755 "$INFRA_DIR/traefik"
 install -d -m 700 "$INFRA_DIR/pgbouncer"
 install -d -m 700 "$INFRA_DIR/backup"
 install -d -m 700 "$PROJECTS_DIR"
+install -d -m 700 "$INFRA_DIR/secrets"
 
 # Restore service configuration
 echo "[3/5] Restoring service configurations..."
@@ -148,6 +155,23 @@ else
     echo "No project configurations found in backup."
 fi
 
+# Restore portable deployment configuration without replacing an explicit target choice.
+if [ -f "$INFRA_DIR/deployment.env" ]; then
+    echo "Existing deployment.env detected on target host; preserving it."
+elif [ -f "$BACKUP_DIR/config/deployment.env" ]; then
+    install -m 600 "$BACKUP_DIR/config/deployment.env" "$INFRA_DIR/deployment.env"
+fi
+
+if [ -d "$BACKUP_DIR/config/secrets" ]; then
+    if [ -n "$(ls -A "$INFRA_DIR/secrets")" ]; then
+        echo "Existing portable secrets detected; refusing to overwrite them." >&2
+        exit 1
+    fi
+    cp -a "$BACKUP_DIR/config/secrets/." "$INFRA_DIR/secrets/"
+    chmod -R go-rwx "$INFRA_DIR/secrets"
+    chown -R root:root "$INFRA_DIR/secrets"
+fi
+
 # Restore infrastructure domain configuration
 echo "[*] Handling infrastructure domain configuration..."
 
@@ -173,7 +197,7 @@ echo "Infrastructure restore completed."
 echo "======================================"
 
 echo "Restored components:"
-echo "- Dockhand data"
+echo "- Dockhand data (when present in the selected backup)"
 echo "- Traefik certificates"
 echo "- Traefik configuration"
 echo "- PgBouncer configuration"
@@ -193,5 +217,9 @@ echo "7. Enable backup cron after recovery."
 
 echo ""
 echo "Cron has not been enabled."
+
+install -d -m 700 "$INFRA_DIR/state"
+touch "$INFRA_DIR/state/restore-prepared"
+chmod 600 "$INFRA_DIR/state/restore-prepared"
 
 echo "===== Infrastructure restore completed: $(date -Is) ====="

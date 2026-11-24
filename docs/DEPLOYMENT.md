@@ -1,6 +1,12 @@
 # Deployment
 
-This is a bootstrap runbook, not a tested one-command installer. Review the actual Compose files and image versions before execution. For recovery of an existing installation, read DISASTER-RECOVERY.md first.
+The interactive bootstrap supports fresh Standalone or GitOps installation and isolated restore preparation. Review the actual Compose files and image versions before execution. For recovery of an existing installation, read DISASTER-RECOVERY.md first.
+
+## Deployment modes
+
+New hosts require `/opt/infra/deployment.env` with exactly `DEPLOYMENT_MODE=standalone` or `DEPLOYMENT_MODE=gitops`, plus the absolute trusted `REPOSITORY_DIR`. The file lives outside Git and is never overwritten automatically. Existing production without this file remains a valid GitOps installation; do not create the file unless deliberately adopting the new tooling.
+
+Standalone uses `deploy.sh` with explicit Compose project names. GitOps uses Dockhand. Running both controllers against the same stacks is prohibited, and this repository does not automate ownership migration.
 
 ## Prerequisites
 
@@ -8,7 +14,27 @@ This is a bootstrap runbook, not a tested one-command installer. Review the actu
 - DNS control for your base domain (e.g., `example.com`), Azure NSG access, private Git repository access.
 - A password manager, Google Drive account and dedicated Google OAuth desktop client for backup.
 
-## Bootstrap
+## Interactive bootstrap
+
+Run from a trusted clone on a fresh Ubuntu 24.04 host. `/opt/infra/repository` is the recommended clone location:
+
+```bash
+sudo bash ./scripts/bootstrap.sh
+```
+
+Use `./scripts/bootstrap.sh --plan` to exercise the prompts and print the plan without changing the machine. Restore preparation installs only base prerequisites and configuration; it does not generate service credentials, create stateful volumes, install/start Dockhand or deploy services.
+
+For a fresh Standalone installation the installer runs the existing setup modules, creates explicit deployment configuration, initializes portable secrets, and calls `deploy.sh`. For a new GitOps installation it installs Dockhand and prints the remaining registration steps. Cockpit is optional in both cases.
+
+When backup is selected, the installer offers interactive Google Drive setup through Rclone, import of an existing `rclone.conf`, or deferral. Rclone presents optional custom OAuth Client ID/Secret fields and browser/headless authorization. Fresh setup asks for the remote, repository folder or full Restic URL, source host and Restic password. A generated password is never printed automatically; copy it from a private terminal into an off-host password manager before relying on the backup.
+
+Restic repository initialization requires the exact confirmation `INITIALIZE` and is offered only in fresh mode after access verification fails. Restore preparation requires existing credentials, verifies the repository, lists snapshots and never initializes a repository or enables cron.
+
+Scheduling remains 02:00 daily and 05:00 Sunday. Before writing `/etc/cron.d/infra-backup`, setup checks root crontab and other cron files for duplicate backup commands.
+
+For deferred fresh setup, run `setup-backup.sh --fresh`, verify the reported snapshots/repository, store the recovery password off-host, and only then run `setup-cron.sh`. `setup-backup.sh --restore` intentionally has no scheduling side effect.
+
+## Manual bootstrap reference
 
 1. Install Docker using the official Ubuntu instructions and install `restic`, `rclone`, `cron` via apt. Configure swap if necessary, and verify available RAM/disk.
 2. Clone the private repository using authorized credentials. Create a local `.env` from `.env.example`, restrict permissions and populate real secrets outside Git.
@@ -31,7 +57,36 @@ This is a bootstrap runbook, not a tested one-command installer. Review the actu
    - `redis.<INFRA_DOMAIN>` -> VPS IP
    - `minio.<INFRA_DOMAIN>` -> VPS IP
    Configure NSG as in SECURITY.md. For migration, defer production DNS cutover until validation; ACME HTTP challenge requires reachable port 80 and matching DNS.
-5. Deploy gateway, then database, cache and storage. Keep Compose project names `infra-gateway`, `infra-database`, `infra-cache`, `infra-storage` unchanged to preserve named-volume mapping. Inspect `docker compose config` locally (it can reveal secrets; do not share output).
+5. Deploy gateway, then database, cache and storage. Keep Compose project names `infra-gateway`, `infra-database`, `infra-cache`, `infra-storage` unchanged to preserve named-volume mapping. Inspect `docker compose config` locally (it can reveal secrets; do not share output). In Standalone mode, `deploy.sh` performs this ordering and fresh authentication initialization.
+
+## Portable secrets
+
+`setup-secrets.sh` discovers variables referenced by the Compose files and refuses to proceed if the expected contract changes without review. It creates:
+
+```text
+/opt/infra/secrets/gateway.env
+/opt/infra/secrets/database.env
+/opt/infra/secrets/cache.env
+/opt/infra/secrets/storage.env
+```
+
+The directory is mode 700 and files are mode 600, root-owned. Existing values are preserved. The script never prints credentials or rotates them. Explicit values may be supplied as environment variables for controlled automation; otherwise strong passwords are generated. The Redis administrator value is mirrored to the existing protected backup password file. A mismatch causes failure instead of rotation.
+
+For GitOps, enter the corresponding values in each Dockhand stack. `infra-gateway` needs `ACME_EMAIL`; `infra-database` needs `INFRA_DOMAIN`, `POSTGRES_PASSWORD` and `PGBOUNCER_AUTH_PASSWORD`; `infra-cache` needs `INFRA_DOMAIN` and `REDIS_PASSWORD`; `infra-storage` needs `INFRA_DOMAIN`, `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. Host secret files are not automatically imported by Dockhand.
+
+## Standalone deploy and update
+
+```bash
+sudo /opt/infra/scripts/deploy.sh --check
+sudo /opt/infra/scripts/deploy.sh
+sudo /opt/infra/scripts/update.sh
+```
+
+Deployment validates every stack before container changes, preserves names and volumes, initializes PgBouncer authentication and Redis ACL only when absent, and checks PostgreSQL, PgBouncer, Redis and MinIO readiness. It never uses destructive volume operations.
+
+Updates are manual. `STANDALONE_BRANCH` in `deployment.env` identifies the trusted remote branch. The updater refuses local modifications, validates the fetched commit in a temporary worktree, coordinates with deployment/backup/provisioning/restore locks, deploys without deleting data and records current and previous revisions.
+
+Rollback of infrastructure code is manual: inspect `/opt/infra/state/previous-deployed-commit`, check out that trusted revision in a clean repository, run `deploy.sh --check`, then `deploy.sh`. A code rollback cannot restore database schemas, service data, deleted objects or previous secret values.
 
 ## Database bootstrap (fresh install only)
 
@@ -72,13 +127,15 @@ Check `docker ps`, `docker stats --no-stream`, `free -h`, `vmstat 1 5`, `df -h`.
 
 ## Bootstrap scripts and installation paths
 
-The repository includes `bootstrap.sh`, `setup-*.sh`, and `restore-*.sh`. Review their contents and arguments before use; the complete fresh-host sequence has not been exercised. Bootstrap expects root, Ubuntu 24.04 and no existing containers. Run from the checked-out repository so relative config paths resolve. Install Cockpit and Dockhand as intended by the setup scripts; for recovery, restore Dockhand data before starting it. Do not run setup-cron on an existing host without reconciling its root crontab.
+The repository includes `bootstrap.sh`, `setup-*.sh`, and `restore-*.sh`. Bootstrap expects root, Ubuntu 24.04 and no existing containers. Run from the checked-out repository so relative config paths resolve. For recovery, restore optional Dockhand data before starting it. Do not run setup-cron on an existing host without reconciling its root crontab.
 
 ## GitOps workflow
 
 The private repository `nguyennan12/nguyenan-infrastructure` uses `main` for changes and `production` for deployments. `.github/workflows/infrastructure-ci.yml` checks Compose with non-live environment values, recursively validates Bash syntax and ShellCheck errors, scans secrets with Gitleaks, and promotes successful main pushes. Pull requests validate without promoting. This is not a runtime integration test. Branch protection is not configured by choice.
 
 Dockhand uses branch `production`, the four stack files and scheduled sync every five minutes. Keep existing stack names and secrets. A separate root systemd service/timer synchronizes the checkout `/opt/infra/repository` via a read-only GitHub deploy key, installs allowlisted backup and management scripts/modules, and records the last applied commit in `/opt/infra/state/last-sync-commit`. It coordinates with backup/provisioning locks; updates can be postponed. The sync executable `/opt/infra/bin/sync-infra.sh` and systemd units are not automatically replaced by this sync. Review and install changes to them separately; a failed install may leave some files updated.
+
+The source allowlist includes the new management scripts, but an already-installed sync script cannot add them to itself. Manually review and install the updated `sync-infra.sh` only if those scripts are required on production. Do not enable or schedule `update.sh` on the GitOps host.
 
 ```bash
 sudo systemctl list-timers infra-sync.timer

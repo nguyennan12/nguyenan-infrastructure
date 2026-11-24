@@ -1,6 +1,8 @@
 # Nguyen An Infrastructure
 
-Personal self-hosted infrastructure for multiple backend projects, running on an Azure Ubuntu VPS with Docker Compose. PostgreSQL, Redis and MinIO provide shared data services with separate project credentials. Traefik provides TLS ingress; Restic and Rclone provide encrypted off-site backups to Google Drive.
+Reusable self-hosted infrastructure for multiple backend projects on Ubuntu 24.04 with Docker Compose. PostgreSQL, Redis and MinIO provide shared data services with separate project credentials. Traefik provides TLS ingress; Restic and Rclone provide encrypted off-site backups to Google Drive.
+
+New installations can use either **Standalone** deployment through Docker Compose CLI or **GitOps** deployment through Dockhand. Both modes use the same stack definitions, provisioning modules, backup scripts and restore scripts. The existing production GitOps installation remains compatible and does not need `deployment.env`, portable secret files, bootstrap reruns or ownership migration.
 
 ## Services
 
@@ -39,6 +41,7 @@ configs/
   systemd/infra-sync.timer
 scripts/
   bootstrap.sh, setup-*.sh
+  deploy.sh, update.sh
   backup-*.sh, maintenance.sh
   restore-*.sh
   create-project.sh, add-service.sh, remove-service.sh
@@ -47,6 +50,7 @@ scripts/
 stacks/{gateway,database,cache,storage}.yml
 docs/
 infrastructure.env.example
+deployment.env.example
 .env.example
 .gitignore
 .gitattributes
@@ -65,6 +69,19 @@ README.md
 
 Daily at 02:00 Asia/Ho_Chi_Minh; maintenance on Sunday at 05:00. Retention: 7 daily, 4 weekly, 3 monthly snapshots per backup group. Google Drive repository: `rclone:gdrive-backup:infra-backup-v2`. Backup and file restoration have been tested; full service recovery on a separate host remains to be tested. Scheduled execution must be verified from logs.
 
+For a new host, bootstrap can open Rclone's interactive Google Drive configuration, import an existing `rclone.conf`, or skip backup setup. Rclone handles optional custom OAuth client credentials and browser/headless authorization. Fresh setup can accept or securely generate a Restic password and initializes a repository only after explicit `INITIALIZE` confirmation. Restore preparation accepts existing credentials only, verifies access, lists snapshots and never enables cron.
+
+Existing backup files are preserved. `setup-cron.sh` refuses to create a schedule when matching root crontab or other `/etc/cron.d` entries already exist.
+
+To configure a deferred fresh backup later:
+
+```bash
+sudo /opt/infra/scripts/setup-backup.sh --fresh
+sudo /opt/infra/scripts/setup-cron.sh
+```
+
+Run the cron command only after repository verification succeeds. On a recovery host use `setup-backup.sh --restore`; do not run `setup-cron.sh` until service recovery has been validated.
+
 ## Secrets
 
 Never commit live `.env` files, OAuth tokens, Redis ACL hashes, PgBouncer userlists, SQL dumps, TLS private keys or Restic passwords. Use a password manager and restricted local files. Keep recovery credentials outside the VPS.
@@ -80,9 +97,39 @@ sudo /opt/infra/backup/backup-all.sh
 
 The add command is illustrative; it skips a service already present. See the project guide for selective provisioning, connection settings and destructive operations. Do not run bootstrap on the existing VPS.
 
+## Fresh VPS installation
+
+Clone the trusted repository on a fresh Ubuntu 24.04 VPS, preferably at `/opt/infra/repository`, and run:
+
+```bash
+sudo bash ./scripts/bootstrap.sh
+```
+
+The installer displays a plan before changing the host. It asks for fresh installation or restore preparation, domain, Standalone or GitOps ownership, optional Cockpit and optional backup configuration. `example.com` requires a separate testing confirmation. DNS, firewall rules and Google Drive OAuth remain manual steps.
+
+### Standalone
+
+The installer records the absolute trusted clone path in `/opt/infra/deployment.env`, creates separate mode-600 stack files under `/opt/infra/secrets`, and deploys with the existing project names. Later validation, deployment and opt-in updates use:
+
+```bash
+sudo /opt/infra/scripts/deploy.sh --check
+sudo /opt/infra/scripts/deploy.sh
+sudo /opt/infra/scripts/update.sh
+```
+
+`update.sh` is never scheduled automatically. It refuses a dirty repository, validates the fetched target in a temporary Git worktree and records the deployed revision. It does not pull images blindly or delete volumes.
+
+### GitOps
+
+GitOps continues to use Dockhand and the `production` branch. For a new GitOps host, register the existing four stack files with project names `infra-gateway`, `infra-database`, `infra-cache` and `infra-storage`. Supply each stack's variables explicitly in Dockhand; Dockhand does not automatically consume `/opt/infra/secrets/*.env`. Do not move current production credentials out of Dockhand merely to adopt this installer.
+
+Standalone and Dockhand must never control the same stacks. Automatic ownership migration is intentionally absent.
+
 ## GitOps
 
 Push changes to `main`. CI validates Compose and Bash, runs secret scanning, then promotes successful main pushes to `production`. Dockhand tracks production for stack deployments; a separate systemd timer tracks production for installed scripts. Both poll at approximately five-minute intervals. Revert a specific bad commit on main rather than force-pushing production. See [Deployment](docs/DEPLOYMENT.md).
+
+The repository sync allowlist now includes `setup-secrets.sh`, `deploy.sh` and `update.sh`. The already-installed production copy of `sync-infra.sh` cannot update its own allowlist; review and install that script manually if these commands are ever needed on that host. This does not activate Standalone deployment.
 
 ## Status — 2026-11-24
 

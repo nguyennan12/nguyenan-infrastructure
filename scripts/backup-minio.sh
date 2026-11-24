@@ -10,9 +10,11 @@ TEMP="/tmp/minio-infra-backup"
 
 source "$BASE/.env"
 
-# Prevent concurrent backups
-exec 9>"$BASE/backup.lock"
-flock -n 9 || exit 1
+# Direct component runs acquire the shared lock. backup-all.sh already holds it.
+if [ "${BACKUP_LOCK_HELD:-0}" != "1" ]; then
+  exec 9>"$BASE/backup.lock"
+  flock -n 9 || { echo "Another backup, deployment or infrastructure update is running." >&2; exit 1; }
+fi
 
 echo "===== MinIO backup started: $(date -Is) ====="
 

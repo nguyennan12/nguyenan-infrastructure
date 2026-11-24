@@ -27,6 +27,12 @@ Never commit live environment values, SQL dumps, Redis ACLs, PgBouncer userlist,
 
 The runtime domain configuration file `/opt/infra/infrastructure.env` is restricted to permissions `600` (root:root) and excluded from Git. It stores only the base domain (`INFRA_DOMAIN`) and no secrets. Common loader functions parse it with strict regular expression validation to prevent shell injection or execution of arbitrary code.
 
+New installations store deployment ownership in `/opt/infra/deployment.env` and portable credentials in stack-specific files below `/opt/infra/secrets`. Configuration readers parse allowed keys without evaluating file contents. Secret setup preserves existing values and fails on Redis credential disagreement. Keep shell tracing disabled around all privileged installation and deployment commands.
+
+The backup wrapper never logs entered OAuth or Restic secrets; OAuth prompts and browser authorization are handled directly by Rclone. Generated Restic passwords remain in the protected mode-600 password file and must be copied manually from a private terminal to an off-host password manager. Restore mode never generates credentials or initializes a repository.
+
+The Standalone owner marker prevents an unowned existing container set from being adopted silently. Detection is a safety boundary, not a substitute for access control: only root should modify `/opt/infra`, the repository checkout or systemd units.
+
 ## Hardening and monitoring
 
 Check Ubuntu security updates, Docker log rotation, resource pressure, open sockets and Azure NSG. Use `sudo ss -lntup`, `sudo docker ps`, `sudo sshd -T`, `sudo docker info` and inspect log configuration. Apply configuration changes deliberately; Docker daemon changes may require restart and recreated containers. Verify updates and access after changes. Security hardening is a checklist to complete, not a claim that this host is fully hardened.

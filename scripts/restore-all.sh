@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+
 BACKUP_DIR="/opt/infra/backup"
 RESTORE_DIR="/opt/infra/restore"
 
@@ -8,6 +11,8 @@ if [ "$EUID" -ne 0 ]; then
     echo "Please run with sudo."
     exit 1
 fi
+
+acquire_restore_locks
 
 if [ -n "$(docker ps -q)" ]; then
     echo "Running containers detected."

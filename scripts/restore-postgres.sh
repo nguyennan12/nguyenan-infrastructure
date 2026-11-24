@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+
 CONTAINER="infra-postgres"
 DB_USER="infra_admin"
 
@@ -8,6 +11,8 @@ if [ "$EUID" -ne 0 ]; then
     echo "Please run with sudo."
     exit 1
 fi
+
+acquire_restore_locks
 
 if [ "$#" -ne 1 ]; then
     echo "Usage: $0 /path/to/postgres.sql"

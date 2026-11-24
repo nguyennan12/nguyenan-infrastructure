@@ -36,3 +36,6 @@ restore-test/
 # Infrastructure configuration
 infrastructure.env
 !infrastructure.env.example
+deployment.env
+!deployment.env.example
+secrets/

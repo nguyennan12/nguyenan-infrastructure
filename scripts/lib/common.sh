@@ -1,7 +1,69 @@
 #!/usr/bin/env bash
 
-PROJECTS_DIR="/opt/infra/projects"
-INFRA_CONFIG_FILE="${INFRA_CONFIG_FILE:-/opt/infra/infrastructure.env}"
+INFRA_ROOT="${INFRA_ROOT:-/opt/infra}"
+PROJECTS_DIR="${PROJECTS_DIR:-$INFRA_ROOT/projects}"
+INFRA_CONFIG_FILE="${INFRA_CONFIG_FILE:-$INFRA_ROOT/infrastructure.env}"
+DEPLOYMENT_CONFIG_FILE="${DEPLOYMENT_CONFIG_FILE:-$INFRA_ROOT/deployment.env}"
+
+read_config_value() {
+    local file="$1"
+    local key="$2"
+    local value=""
+    local line
+
+    test -f "$file" || return 1
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+
+        if [[ "$line" =~ ^(export[[:space:]]+)?${key}=(.*)$ ]]; then
+            value="${BASH_REMATCH[2]}"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            value="${value%\"}"
+            value="${value#\"}"
+            value="${value%\'}"
+            value="${value#\'}"
+            printf '%s\n' "$value"
+            return 0
+        fi
+    done < "$file"
+
+    return 1
+}
+
+load_deployment_config() {
+    if [ ! -f "$DEPLOYMENT_CONFIG_FILE" ]; then
+        echo "Deployment configuration not found: $DEPLOYMENT_CONFIG_FILE" >&2
+        echo "Existing GitOps installations remain valid, but new deployment commands require an explicit mode." >&2
+        return 1
+    fi
+
+    DEPLOYMENT_MODE="$(read_config_value "$DEPLOYMENT_CONFIG_FILE" DEPLOYMENT_MODE || true)"
+
+    case "$DEPLOYMENT_MODE" in
+        standalone|gitops) ;;
+        *)
+            echo "Invalid DEPLOYMENT_MODE in $DEPLOYMENT_CONFIG_FILE" >&2
+            return 1
+            ;;
+    esac
+
+    export DEPLOYMENT_MODE
+}
+
+validate_domain() {
+    local domain="$1"
+
+    if [ -z "$domain" ] || [[ "$domain" =~ ://|/|: ]] ||
+       [ "${#domain}" -gt 253 ] ||
+       [[ ! "$domain" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]]; then
+        echo "Invalid infrastructure domain: $domain" >&2
+        return 1
+    fi
+}
 
 load_infra_config() {
     if [ -n "${INFRA_DOMAIN:-}" ] && [ -n "${POSTGRES_HOST:-}" ] && [ -n "${REDIS_HOST:-}" ] && [ -n "${MINIO_HOST:-}" ]; then
@@ -45,18 +107,7 @@ load_infra_config() {
         exit 1
     fi
 
-    if [[ "$domain" =~ :// ]] || [[ "$domain" =~ / ]] || [[ "$domain" =~ : ]]; then
-        echo "Error: INFRA_DOMAIN must not contain protocol, path, or port ('$domain')" >&2
-        exit 1
-    fi
-
-    if [ "${#domain}" -gt 253 ]; then
-        echo "Error: INFRA_DOMAIN is too long (max 253 characters)" >&2
-        exit 1
-    fi
-
-    if [[ ! "$domain" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]]; then
-        echo "Error: Invalid INFRA_DOMAIN format '$domain'. Must be a valid hostname (e.g., example.com)." >&2
+    if ! validate_domain "$domain"; then
         exit 1
     fi
 
@@ -196,12 +247,52 @@ remove_env_vars() {
 }
 
 acquire_project_lock() {
-    install -d -m 700 /opt/infra/state
+    install -d -m 700 "$INFRA_ROOT/state"
 
-    exec 9>/opt/infra/state/provisioning.lock
+    exec 9>"$INFRA_ROOT/state/provisioning.lock"
 
     flock -n 9 || {
         echo "Another provisioning task is running."
+        exit 1
+    }
+}
+
+acquire_destructive_project_locks() {
+    install -d -m 700 "$INFRA_ROOT/backup" "$INFRA_ROOT/state"
+
+    exec 8>"$INFRA_ROOT/backup/backup.lock"
+    flock -n 8 || {
+        echo "A backup, deployment or infrastructure sync is running." >&2
+        exit 1
+    }
+
+    exec 9>"$INFRA_ROOT/state/provisioning.lock"
+    flock -n 9 || {
+        echo "Another project operation or deployment is running." >&2
+        exit 1
+    }
+
+    export BACKUP_LOCK_HELD=1
+}
+
+acquire_restore_locks() {
+    install -d -m 700 "$INFRA_ROOT/backup" "$INFRA_ROOT/state"
+
+    exec 8>"$INFRA_ROOT/backup/backup.lock"
+    flock -n 8 || {
+        echo "A backup, deployment or infrastructure sync is running." >&2
+        exit 1
+    }
+
+    exec 7>"$INFRA_ROOT/state/provisioning.lock"
+    flock -n 7 || {
+        echo "A project operation or deployment is running." >&2
+        exit 1
+    }
+
+    exec 6>"$INFRA_ROOT/state/restore.lock"
+    flock -n 6 || {
+        echo "Another restore or update is running." >&2
         exit 1
     }
 }
