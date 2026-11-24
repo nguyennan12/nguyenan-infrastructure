@@ -33,6 +33,10 @@ for file in .env .redis-password rclone.conf; do
     test -s "$BACKUP_DIR/config/backup/$file"
 done
 
+if [ ! -f "$BACKUP_DIR/config/infrastructure.env" ]; then
+    echo "Note: infrastructure.env not found in backup (older backup snapshot)."
+fi
+
 # Prevent accidental restore on existing infrastructure
 if [ -n "$(docker ps -aq)" ]; then
     echo "Existing Docker containers detected."
@@ -144,6 +148,26 @@ else
     echo "No project configurations found in backup."
 fi
 
+# Restore infrastructure domain configuration
+echo "[*] Handling infrastructure domain configuration..."
+
+if [ -f "$INFRA_DIR/infrastructure.env" ]; then
+    echo "Existing $INFRA_DIR/infrastructure.env detected on target host. Preserving existing configuration."
+    echo "If you wish to use the domain from backup, inspect $BACKUP_DIR/config/infrastructure.env."
+elif [ -f "$BACKUP_DIR/config/infrastructure.env" ]; then
+    echo "Restoring infrastructure domain configuration from backup..."
+    install -m 600 \
+        "$BACKUP_DIR/config/infrastructure.env" \
+        "$INFRA_DIR/infrastructure.env"
+    chown root:root "$INFRA_DIR/infrastructure.env" 2>/dev/null || true
+    echo "Infrastructure domain configuration restored."
+else
+    echo "Notice: infrastructure.env not found in backup or on host."
+    echo "Please create $INFRA_DIR/infrastructure.env manually with:"
+    echo "  INFRA_DOMAIN=<your-domain>"
+    echo "and set permissions: chmod 600 $INFRA_DIR/infrastructure.env"
+fi
+
 echo "======================================"
 echo "Infrastructure restore completed."
 echo "======================================"
@@ -155,15 +179,17 @@ echo "- Traefik configuration"
 echo "- PgBouncer configuration"
 echo "- Backup credentials"
 echo "- Project configurations"
+echo "- Infrastructure domain configuration (if present)"
 
 echo ""
 echo "Next steps:"
 echo "1. Review restored configuration."
-echo "2. Verify Restic password is available."
-echo "3. Restore PostgreSQL, Redis and MinIO."
-echo "4. Start Dockhand and infrastructure stacks safely."
-echo "5. Verify all services."
-echo "6. Enable backup cron after recovery."
+echo "2. Verify $INFRA_DIR/infrastructure.env matches your target domain."
+echo "3. Verify Restic password is available."
+echo "4. Restore PostgreSQL, Redis and MinIO."
+echo "5. Start Dockhand and infrastructure stacks safely."
+echo "6. Verify all services."
+echo "7. Enable backup cron after recovery."
 
 echo ""
 echo "Cron has not been enabled."

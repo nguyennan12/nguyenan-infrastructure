@@ -4,7 +4,7 @@
 
 Google account access; original Google OAuth client ID and secret; protected Rclone configuration or ability to reauthorize the same OAuth application; Restic password; private Git repository access; DNS and cloud account access. With `drive.file`, a different OAuth application may not see the original backup objects. Do not rely on a credential that exists only inside the encrypted backup.
 
-Repository: `rclone:gdrive-backup:static4j-backup-v2` (initial repository ID prefix `0bfefca8`).
+Repository: `rclone:gdrive-backup:infra-backup-v2` (or your configured backup bucket).
 
 ## Backup schedule
 
@@ -29,6 +29,9 @@ Use explicit snapshot IDs instead of latest when recovering to a chosen time. Re
 ## Restore services on a separate host
 
 1. Use the repository and recovered Dockhand archive to reconstruct deployment settings. Docker inspect JSON is reference metadata, not an executable Compose replacement. Review absolute bind paths, images, networks, volumes and secrets. Restore Dockhand data only while Dockhand is stopped. Restore Traefik dynamic configuration and certificate volume with proper permissions, or obtain fresh certificates.
+   - **Infrastructure domain restoration**: `scripts/restore-infra.sh` handles `/opt/infra/infrastructure.env`. If the destination VPS already has `/opt/infra/infrastructure.env` configured (e.g., targeting a new recovery domain), it is preserved. If not present on the host, it is restored from the backup with permissions `600` (root:root). When restoring from an older backup snapshot without `infrastructure.env`, create `/opt/infra/infrastructure.env` manually (`INFRA_DOMAIN=example.com`).
+   - In Dockhand, verify `INFRA_DOMAIN` matches the target domain for `infra-database`, `infra-cache`, and `infra-storage`.
+   - Update DNS records for `postgres`, `redis`, and `minio` subdomains to point to the recovery VPS IP.
 2. PostgreSQL: restore the SQL dump into a fresh compatible test cluster, not the live cluster. The dump contains global roles and database creation statements. Use a distinct bootstrap superuser to avoid duplicate-role conflicts, inspect the existing `postgres` database statements and resolve conflicts before restoring. Execute with `psql -X -v ON_ERROR_STOP=1`, verify all databases, roles, ownership, row counts and PgBouncer auth. Do not reapply setup-auth.sql if restored already.
 3. Redis: recover `redis.rdb` and `users.acl` into the intended data volume while stopped. For a fresh recovery volume start with AOF disabled so Redis loads RDB, validate keys/ACLs, then enable AOF and verify rewrite completion before restoring the normal AOF-enabled Compose configuration. Do not leave stale AOF files that override the restored RDB. Restore correct Redis ownership/permissions and admin backup secret.
 4. MinIO: deploy compatible MinIO with recovered root credentials. Recreate buckets, import bucket/IAM metadata with matching `mc admin cluster ... import` commands (check version-specific help), restore server configuration selectively, mirror objects into the correct buckets and verify application IAM. Empty buckets, version history, object metadata and service-account recovery require explicit validation.

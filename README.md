@@ -6,14 +6,27 @@ Personal self-hosted infrastructure for multiple backend projects, running on an
 
 | Service | Application endpoint | Administration |
 |---|---|---|
-| PostgreSQL 17 + PgBouncer | `postgres.static4j.app:6433` (TLS) | pgAdmin via `127.0.0.1:15432` |
-| Redis 8 | `redis.static4j.app:6380` (TLS) | RedisInsight via `127.0.0.1:16379` |
-| MinIO | `https://minio.static4j.app` | `http://127.0.0.1:9001` |
+| PostgreSQL 17 + PgBouncer | `postgres.${INFRA_DOMAIN}:6433` (TLS) | pgAdmin via `127.0.0.1:15432` |
+| Redis 8 | `redis.${INFRA_DOMAIN}:6380` (TLS) | RedisInsight via `127.0.0.1:16379` |
+| MinIO | `https://minio.${INFRA_DOMAIN}` | `http://127.0.0.1:9001` |
 | Dockhand | Private | `http://127.0.0.1:13000` |
 | Cockpit | Private | `https://127.0.0.1:9090` |
 | Traefik | TCP 80/443/6380/6433 | `http://127.0.0.1:8080/dashboard/` |
 
-Administration endpoints require SSH local forwarding (or local access). Application ports require appropriate Azure NSG rules. Use project-specific credentials, not administrator accounts.
+Administration endpoints require SSH local forwarding (or local access). Application ports require appropriate Azure NSG rules. Use project-specific credentials, not administrator accounts. Default examples in documentation use `example.com` (e.g., `postgres.example.com:6433`).
+
+## Infrastructure domain configuration
+
+The infrastructure uses a single base domain configuration:
+
+- **VPS Runtime**: `/opt/infra/infrastructure.env` contains `INFRA_DOMAIN=example.com` (mode 600, root:root).
+- **Dockhand Stacks**: Environment variable `INFRA_DOMAIN=example.com` configured for `infra-database`, `infra-cache`, and `infra-storage`.
+- **Derived Endpoints**:
+  - PostgreSQL: `postgres.${INFRA_DOMAIN}:6433`
+  - Redis: `redis.${INFRA_DOMAIN}:6380`
+  - MinIO: `https://minio.${INFRA_DOMAIN}`
+
+This decoupling allows deploying the infrastructure on any VPS or new domain without modifying source code.
 
 ## Repository layout
 
@@ -33,6 +46,7 @@ scripts/
   lib/common.sh, postgres.sh, redis.sh, minio.sh
 stacks/{gateway,database,cache,storage}.yml
 docs/
+infrastructure.env.example
 .env.example
 .gitignore
 .gitattributes
@@ -49,7 +63,7 @@ README.md
 
 ## Backup
 
-Daily at 02:00 Asia/Ho_Chi_Minh; maintenance on Sunday at 05:00. Retention: 7 daily, 4 weekly, 3 monthly snapshots per backup group. Google Drive repository: `rclone:gdrive-backup:static4j-backup-v2`. Backup and file restoration have been tested; full service recovery on a separate host remains to be tested. Scheduled execution must be verified from logs.
+Daily at 02:00 Asia/Ho_Chi_Minh; maintenance on Sunday at 05:00. Retention: 7 daily, 4 weekly, 3 monthly snapshots per backup group. Google Drive repository: `rclone:gdrive-backup:infra-backup-v2`. Backup and file restoration have been tested; full service recovery on a separate host remains to be tested. Scheduled execution must be verified from logs.
 
 ## Secrets
 
@@ -72,11 +86,11 @@ Push changes to `main`. CI validates Compose and Bash, runs secret scanning, the
 
 ## Status — 2026-11-24
 
-- Six running containers; PostgreSQL/Redis/MinIO project isolation exercised in test projects, with manual VitaFlix resources outside V2 management.
+- Six running containers; PostgreSQL/Redis/MinIO project isolation exercised in test projects.
 - GitOps label deployment and revert observed on Redis; MinIO fix commit preserved.
 - Modular create/add/remove exercised. A failed MinIO deletion was repaired and completed manually; automatic end-to-end deletion after the fix was intentionally not retested.
 - Restic integrity check and restoration of files from four backup groups succeeded. Full independent-host recovery and recovery time remain unverified.
 - Duplicate daily cron entry was observed; removal and absence of other schedules should be verified. No external application deployment is required or claimed.
-- Suggested first release: `v1.0.0-rc.1`; final release subject to recovery and deletion validation. Legacy migration intentionally omitted.
+- Suggested first release: `v1.0.0-rc.1`; final release subject to recovery and deletion validation. Modular provisioning is the default implementation.
 
 Documentation reflects the observed setup and prior runbook, not a fresh audit of every source file or live configuration.

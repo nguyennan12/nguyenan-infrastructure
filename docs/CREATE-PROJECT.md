@@ -1,6 +1,6 @@
-# Modular project lifecycle (V2)
+# Modular project lifecycle
 
-V2 is the default for new projects. Legacy migration is intentionally omitted; manually provisioned VitaFlix resources are not owned by these scripts. Run commands on the VPS via SSH as an authorized administrator.
+Modular provisioning is the default for all managed projects. Legacy migration is intentionally omitted. Run commands on the VPS via SSH as an authorized administrator.
 
 ## Create and inspect
 
@@ -9,7 +9,9 @@ sudo /opt/infra/scripts/create-project.sh myapp --postgres --redis
 sudo /opt/infra/scripts/list-projects.sh
 ```
 
-Use `--postgres`, `--redis`, `--minio`, or `--all`; omit flags for interactive selection. Enter `CREATE myapp` when prompted. Names use lowercase letters/digits, start with a letter, 3–30 characters. MinIO operations request administrator credentials interactively. Credentials are generated and saved in the protected `/opt/infra/projects/myapp/.env`; do not share or commit this file. The manifest `project.json` records service flags and lifecycle status. List reads metadata, not live resource health.
+Use `--postgres`, `--redis`, `--minio`, or `--all`; omit flags for interactive selection. Enter `CREATE myapp` when prompted. Names use lowercase letters/digits, start with a letter, 3–30 characters. MinIO operations request administrator credentials interactively.
+Service endpoints are automatically derived from `/opt/infra/infrastructure.env` (`POSTGRES_HOST=postgres.${INFRA_DOMAIN}`, `REDIS_HOST=redis.${INFRA_DOMAIN}`, `S3_ENDPOINT=https://minio.${INFRA_DOMAIN}`).
+Credentials are generated and saved in the protected `/opt/infra/projects/myapp/.env`; do not share or commit this file. The manifest `project.json` records service flags and lifecycle status. List reads metadata, not live resource health.
 
 | Service | Resource names | Isolation |
 |---|---|---|
@@ -29,15 +31,15 @@ These are separate operations; run only the intended command. Confirm with `ADD 
 
 ## Failure handling
 
-A failure can leave `incomplete` metadata and partially created/deleted resources. Do not blindly retry or set all flags false; do not delete the project directory first. Inspect `project.json`, logs and actual service resources; verify backups. Coordinate with provisioning/sync locks. Repair only the affected resources, update metadata only after verification, and preserve unrelated applications. The current scripts do not provide automatic resume/rollback for incomplete projects. The prior modulartest MinIO cleanup was manual. Legacy projects require separately reviewed cleanup, not V2 deletion.
+A failure can leave `incomplete` metadata and partially created/deleted resources. Do not blindly retry or set all flags false; do not delete the project directory first. Inspect `project.json`, logs and actual service resources; verify backups. Coordinate with provisioning/sync locks. Repair only the affected resources, update metadata only after verification, and preserve unrelated applications. The current scripts do not provide automatic resume/rollback for incomplete projects. The prior modulartest MinIO cleanup was manual.
 
 ## Backend environment example
 
 ```dotenv
-DATABASE_URL=postgresql://myapp_user:REPLACE_ME@postgres.static4j.app:6433/myapp_db?sslmode=verify-full
-REDIS_URL=rediss://myapp_user:REPLACE_ME@redis.static4j.app:6380
+DATABASE_URL=postgresql://myapp_user:REPLACE_ME@postgres.example.com:6433/myapp_db?sslmode=verify-full
+REDIS_URL=rediss://myapp_user:REPLACE_ME@redis.example.com:6380
 REDIS_KEY_PREFIX=myapp:
-S3_ENDPOINT=https://minio.static4j.app
+S3_ENDPOINT=https://minio.example.com
 S3_BUCKET=myapp
 S3_ACCESS_KEY=myapp_user
 S3_SECRET_KEY=REPLACE_ME
@@ -46,6 +48,19 @@ S3_FORCE_PATH_STYLE=true
 ```
 
 Set real values in backend secret settings. URL-encode passwords in connection URLs. Configure trusted CA and hostname verification according to the actual driver; do not disable certificate verification. Environment variable names and prefix settings must be supported by your application. Never expose these credentials to frontend code.
+
+## Updating existing projects after domain change
+
+When changing `INFRA_DOMAIN` in `/opt/infra/infrastructure.env`, existing projects retain their existing `.env` files to prevent unexpected service disruption. To migrate existing projects to the new domain:
+
+1. Edit `/opt/infra/projects/<project>/.env`:
+   - Update `POSTGRES_HOST=postgres.newdomain.com`
+   - Update `DATABASE_URL` with `postgres.newdomain.com`
+   - Update `REDIS_HOST=redis.newdomain.com`
+   - Update `REDIS_URL` with `redis.newdomain.com`
+   - Update `S3_ENDPOINT=https://minio.newdomain.com`
+2. Update the environment variables in your external application deployment (e.g. backend service).
+3. Verify connection with the new domain.
 
 ## Acceptance
 

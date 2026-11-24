@@ -25,6 +25,8 @@ The database and Redis TLS ports were opened for connectivity testing. Restrict 
 
 Never commit live environment values, SQL dumps, Redis ACLs, PgBouncer userlist, ACME private keys, OAuth tokens or backup passwords. Inspect Compose command arguments as well as environment values. Rotate exposed credentials and update dependent services and backup scripts. Use separate project credentials. Protect restored backup files; Restic encryption does not protect plaintext staging files. Store Restic password separately from the VPS.
 
+The runtime domain configuration file `/opt/infra/infrastructure.env` is restricted to permissions `600` (root:root) and excluded from Git. It stores only the base domain (`INFRA_DOMAIN`) and no secrets. Common loader functions parse it with strict regular expression validation to prevent shell injection or execution of arbitrary code.
+
 ## Hardening and monitoring
 
 Check Ubuntu security updates, Docker log rotation, resource pressure, open sockets and Azure NSG. Use `sudo ss -lntup`, `sudo docker ps`, `sudo sshd -T`, `sudo docker info` and inspect log configuration. Apply configuration changes deliberately; Docker daemon changes may require restart and recreated containers. Verify updates and access after changes. Security hardening is a checklist to complete, not a claim that this host is fully hardened.

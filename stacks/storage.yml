@@ -28,7 +28,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=proxy"
-      - "traefik.http.routers.minio.rule=Host(`minio.static4j.app`)"
+      - "traefik.http.routers.minio.rule=Host(`minio.${INFRA_DOMAIN:?INFRA_DOMAIN is required}`)"
       - "traefik.http.routers.minio.entrypoints=websecure"
       - "traefik.http.routers.minio.tls=true"
       - "traefik.http.routers.minio.tls.certresolver=letsencrypt"

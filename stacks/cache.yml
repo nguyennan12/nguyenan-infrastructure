@@ -28,7 +28,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=proxy"
-      - "traefik.tcp.routers.redis.rule=HostSNI(`redis.static4j.app`)"
+      - "traefik.tcp.routers.redis.rule=HostSNI(`redis.${INFRA_DOMAIN:?INFRA_DOMAIN is required}`)"
       - "traefik.tcp.routers.redis.entrypoints=redis"
       - "traefik.tcp.routers.redis.tls=true"
       - "traefik.tcp.routers.redis.tls.certresolver=letsencrypt"

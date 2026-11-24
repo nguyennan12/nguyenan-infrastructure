@@ -69,7 +69,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=proxy"
-      - "traefik.tcp.routers.postgres.rule=HostSNI(`postgres.static4j.app`)"
+      - "traefik.tcp.routers.postgres.rule=HostSNI(`postgres.${INFRA_DOMAIN:?INFRA_DOMAIN is required}`)"
       - "traefik.tcp.routers.postgres.entrypoints=postgres"
       - "traefik.tcp.routers.postgres.tls=true"
       - "traefik.tcp.routers.postgres.tls.certresolver=letsencrypt"

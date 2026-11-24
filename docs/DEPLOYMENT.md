@@ -5,13 +5,20 @@ This is a bootstrap runbook, not a tested one-command installer. Review the actu
 ## Prerequisites
 
 - Ubuntu 24.04 VPS, SSH key access, Docker Engine and Compose plugin.
-- DNS control for static4j.app, Azure NSG access, private Git repository access.
+- DNS control for your base domain (e.g., `example.com`), Azure NSG access, private Git repository access.
 - A password manager, Google Drive account and dedicated Google OAuth desktop client for backup.
 
 ## Bootstrap
 
 1. Install Docker using the official Ubuntu instructions and install `restic`, `rclone`, `cron` via apt. Configure swap if necessary, and verify available RAM/disk.
-2. Clone the private repository using authorized credentials. Create a local `.env` from `.env.example`, restrict permissions and populate real secrets outside Git. In Dockhand, set the equivalent variables separately for each stack.
+2. Clone the private repository using authorized credentials. Create a local `.env` from `.env.example`, restrict permissions and populate real secrets outside Git.
+   Create and configure the infrastructure domain file:
+   ```bash
+   sudo cp infrastructure.env.example /opt/infra/infrastructure.env
+   sudo chmod 600 /opt/infra/infrastructure.env
+   # Set INFRA_DOMAIN=example.com in /opt/infra/infrastructure.env
+   ```
+   In Dockhand, set the equivalent variables separately for each stack, including `INFRA_DOMAIN=example.com` for `infra-database`, `infra-cache`, and `infra-storage`.
 3. Create the shared network if absent:
 
    ```bash
@@ -19,7 +26,11 @@ This is a bootstrap runbook, not a tested one-command installer. Review the actu
    sudo install -d /opt/infra/traefik/dynamic
    sudo install -m 644 configs/traefik/dynamic/tls.yml /opt/infra/traefik/dynamic/tls.yml
    ```
-4. Point the DNS A records `postgres`, `redis`, `minio` to the new VPS IP. Configure NSG as in SECURITY.md. For migration, defer production DNS cutover until validation; ACME HTTP challenge requires reachable port 80 and matching DNS.
+4. Point DNS A records for subdomains to the new VPS IP:
+   - `postgres.<INFRA_DOMAIN>` -> VPS IP
+   - `redis.<INFRA_DOMAIN>` -> VPS IP
+   - `minio.<INFRA_DOMAIN>` -> VPS IP
+   Configure NSG as in SECURITY.md. For migration, defer production DNS cutover until validation; ACME HTTP challenge requires reachable port 80 and matching DNS.
 5. Deploy gateway, then database, cache and storage. Keep Compose project names `infra-gateway`, `infra-database`, `infra-cache`, `infra-storage` unchanged to preserve named-volume mapping. Inspect `docker compose config` locally (it can reveal secrets; do not share output).
 
 ## Database bootstrap (fresh install only)
@@ -86,6 +97,30 @@ git log -3 --oneline origin/production
 ```
 
 After a new revert is promoted, check Dockhand sync and container health; separately check installed script sync if affected. Redis test label `infra.rollback-test` appeared and later disappeared after revert. Git rollback does not restore deleted data, previous secret values or incompatible on-disk schemas.
+
+## Domain change procedure
+
+To migrate infrastructure to a new domain or rename `INFRA_DOMAIN`:
+
+1. **DNS configuration**:
+   Add DNS A records on the new DNS provider pointing to the VPS public IP:
+   - `postgres.<NEW_DOMAIN>` -> `<VPS_IP>`
+   - `redis.<NEW_DOMAIN>` -> `<VPS_IP>`
+   - `minio.<NEW_DOMAIN>` -> `<VPS_IP>`
+2. **Update VPS configuration**:
+   Edit `/opt/infra/infrastructure.env`:
+   ```dotenv
+   INFRA_DOMAIN=newdomain.com
+   ```
+   Ensure permissions remain `600` (owned by `root:root`).
+3. **Update Dockhand stack environments**:
+   In Dockhand UI:
+   - For `infra-database`: Update `INFRA_DOMAIN=newdomain.com` and redeploy stack.
+   - For `infra-cache`: Update `INFRA_DOMAIN=newdomain.com` and redeploy stack.
+   - For `infra-storage`: Update `INFRA_DOMAIN=newdomain.com` and redeploy stack.
+   Traefik detects the updated router rules and issues new Let's Encrypt certificates via ACME HTTP challenge.
+4. **Update existing projects**:
+   Update connection strings in existing project `.env` files (`/opt/infra/projects/<name>/.env`) and dependent applications as described in `CREATE-PROJECT.md`.
 
 ## Routine operations
 

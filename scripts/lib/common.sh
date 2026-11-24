@@ -1,6 +1,70 @@
 #!/usr/bin/env bash
 
 PROJECTS_DIR="/opt/infra/projects"
+INFRA_CONFIG_FILE="${INFRA_CONFIG_FILE:-/opt/infra/infrastructure.env}"
+
+load_infra_config() {
+    if [ -n "${INFRA_DOMAIN:-}" ] && [ -n "${POSTGRES_HOST:-}" ] && [ -n "${REDIS_HOST:-}" ] && [ -n "${MINIO_HOST:-}" ]; then
+        return 0
+    fi
+
+    if [ ! -f "$INFRA_CONFIG_FILE" ]; then
+        echo "Configuration file not found: $INFRA_CONFIG_FILE" >&2
+        echo "Please create $INFRA_CONFIG_FILE with INFRA_DOMAIN=<your-domain>" >&2
+        exit 1
+    fi
+
+    local domain=""
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Trim leading and trailing whitespace
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+
+        if [[ "$line" =~ ^INFRA_DOMAIN=(.*)$ ]]; then
+            domain="${BASH_REMATCH[1]}"
+            # Strip inline comment
+            domain="${domain%%#*}"
+            # Trim leading and trailing whitespace before removing quotes
+            domain="${domain#"${domain%%[![:space:]]*}"}"
+            domain="${domain%"${domain##*[![:space:]]}"}"
+            # Strip quotes
+            domain="${domain%\"}"
+            domain="${domain#\"}"
+            domain="${domain%\'}"
+            domain="${domain#\'}"
+            # Trim whitespace again if needed
+            domain="${domain#"${domain%%[![:space:]]*}"}"
+            domain="${domain%"${domain##*[![:space:]]}"}"
+            break
+        fi
+    done < "$INFRA_CONFIG_FILE"
+
+    if [ -z "$domain" ]; then
+        echo "Error: INFRA_DOMAIN is missing or empty in $INFRA_CONFIG_FILE" >&2
+        exit 1
+    fi
+
+    if [[ "$domain" =~ :// ]] || [[ "$domain" =~ / ]] || [[ "$domain" =~ : ]]; then
+        echo "Error: INFRA_DOMAIN must not contain protocol, path, or port ('$domain')" >&2
+        exit 1
+    fi
+
+    if [ "${#domain}" -gt 253 ]; then
+        echo "Error: INFRA_DOMAIN is too long (max 253 characters)" >&2
+        exit 1
+    fi
+
+    if [[ ! "$domain" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]]; then
+        echo "Error: Invalid INFRA_DOMAIN format '$domain'. Must be a valid hostname (e.g., example.com)." >&2
+        exit 1
+    fi
+
+    export INFRA_DOMAIN="$domain"
+    export POSTGRES_HOST="postgres.${INFRA_DOMAIN}"
+    export REDIS_HOST="redis.${INFRA_DOMAIN}"
+    export MINIO_HOST="minio.${INFRA_DOMAIN}"
+}
 
 require_root() {
     if [ "$EUID" -ne 0 ]; then

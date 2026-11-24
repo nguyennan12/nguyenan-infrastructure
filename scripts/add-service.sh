@@ -92,6 +92,8 @@ if ! $USE_POSTGRES &&
     exit 0
 fi
 
+load_infra_config
+
 # Validate selected services
 if $USE_POSTGRES; then
     require_container infra-postgres

@@ -5,6 +5,7 @@
 # ==========================================
 
 create_minio() (
+    load_infra_config
     require_container infra-minio
 
     if ! command -v mc >/dev/null 2>&1; then
@@ -56,7 +57,7 @@ create_minio() (
     cat >> "$ENV_FILE" <<EOF
 
 # MinIO
-S3_ENDPOINT=https://minio.static4j.app
+S3_ENDPOINT=https://$MINIO_HOST
 S3_BUCKET=$MINIO_BUCKET
 S3_ACCESS_KEY=$MINIO_USER
 S3_SECRET_KEY=$password

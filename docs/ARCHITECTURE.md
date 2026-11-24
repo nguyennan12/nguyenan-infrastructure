@@ -24,7 +24,19 @@ Application hosting is outside this infrastructure scope; no Render or Vercel de
 
 ## Host and services
 
-Azure Ubuntu 24.04, Standard B2ats v2, 2 vCPU, 1 GiB RAM, 2 GiB swap. Public DNS under `static4j.app`. MongoDB is not running. Avoid adding heavyweight monitoring services to this host without load testing.
+Azure Ubuntu 24.04, Standard B2ats v2, 2 vCPU, 1 GiB RAM, 2 GiB swap. Public DNS under configured `INFRA_DOMAIN` (e.g. `example.com`). Subdomains: `postgres.${INFRA_DOMAIN}`, `redis.${INFRA_DOMAIN}`, `minio.${INFRA_DOMAIN}`. MongoDB is not running. Avoid adding heavyweight monitoring services to this host without load testing.
+
+### Domain externalization
+
+All infrastructure endpoint hostnames are dynamically derived from a single configuration variable: `INFRA_DOMAIN` (e.g., `example.com`):
+
+- PostgreSQL / PgBouncer: `postgres.${INFRA_DOMAIN}:6433`
+- Redis: `redis.${INFRA_DOMAIN}:6380`
+- MinIO: `https://minio.${INFRA_DOMAIN}`
+
+This configuration is decoupled:
+- **Dockhand Stacks**: Receives `INFRA_DOMAIN` as an environment variable to interpolate Traefik router rules in `stacks/database.yml`, `stacks/cache.yml`, and `stacks/storage.yml`.
+- **VPS Provisioning Scripts**: Reads `/opt/infra/infrastructure.env` safely via `scripts/lib/common.sh` (`load_infra_config`), ensuring new projects automatically receive connection strings for the current host domain without modifying source code.
 
 | Stack | Service | Persistent storage |
 |---|---|---|

@@ -11,6 +11,7 @@ pg_admin() {
 # ==========================================
 
 create_postgres() {
+    load_infra_config
     require_container infra-postgres
 
     echo "Creating PostgreSQL resources..."
@@ -41,12 +42,12 @@ create_postgres() {
     cat >> "$ENV_FILE" <<EOF
 
 # PostgreSQL
-POSTGRES_HOST=postgres.static4j.app
+POSTGRES_HOST=$POSTGRES_HOST
 POSTGRES_PORT=6433
 POSTGRES_DB=$DB_NAME
 POSTGRES_USER=$DB_USER
 POSTGRES_PASSWORD=$password
-DATABASE_URL=postgresql://$DB_USER:$password@postgres.static4j.app:6433/$DB_NAME?sslmode=verify-full
+DATABASE_URL=postgresql://$DB_USER:$password@$POSTGRES_HOST:6433/$DB_NAME?sslmode=verify-full
 EOF
 
     pg_admin <<SQL

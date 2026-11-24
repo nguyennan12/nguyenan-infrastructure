@@ -95,6 +95,8 @@ fi
 command -v jq >/dev/null
 command -v openssl >/dev/null
 
+load_infra_config
+
 install -d -m 700 "$PROJECTS_DIR"
 install -d -m 700 /opt/infra/state
 

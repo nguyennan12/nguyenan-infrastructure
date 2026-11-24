@@ -92,6 +92,14 @@ cp "$BASE/.env" \
     "$BASE/rclone.conf" \
     "$STAGING/config/backup/"
 
+# Backup infrastructure domain configuration
+if [ -f /opt/infra/infrastructure.env ]; then
+    echo "Backing up infrastructure environment configuration..."
+    install -m 600 /opt/infra/infrastructure.env "$STAGING/config/infrastructure.env"
+else
+    echo "Warning: /opt/infra/infrastructure.env not found. Skipping."
+fi
+
 # Backup project credentials and policies
 if [ -d "$PROJECTS_DIR" ]; then
     echo "Backing up project configurations..."

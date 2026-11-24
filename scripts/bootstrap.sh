@@ -44,4 +44,4 @@ docker network ls
 free -h
 df -h
 
-echo "Next: restore secrets and install Dockhand."
+echo "Next: configure /opt/infra/infrastructure.env, restore secrets and install Dockhand."

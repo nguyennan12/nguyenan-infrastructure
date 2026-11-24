@@ -11,6 +11,7 @@ redis_admin() {
 }
 
 create_redis() {
+    load_infra_config
     require_container infra-redis
 
     echo "Creating Redis resources..."
@@ -33,12 +34,12 @@ create_redis() {
     cat >> "$ENV_FILE" <<EOF
 
 # Redis
-REDIS_HOST=redis.static4j.app
+REDIS_HOST=$REDIS_HOST
 REDIS_PORT=6380
 REDIS_USER=$REDIS_USER
 REDIS_PASSWORD=$password
 REDIS_KEY_PREFIX=$PROJECT:
-REDIS_URL=rediss://$REDIS_USER:$password@redis.static4j.app:6380
+REDIS_URL=rediss://$REDIS_USER:$password@$REDIS_HOST:6380
 EOF
 
     result="$(redis_admin ACL SETUSER "$REDIS_USER" \

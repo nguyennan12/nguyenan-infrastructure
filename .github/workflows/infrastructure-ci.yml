@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 5
 
     env:
+      INFRA_DOMAIN: example.com
       POSTGRES_PASSWORD: ci-test-password
       PGBOUNCER_AUTH_PASSWORD: ci-test-password
       REDIS_PASSWORD: ci-test-password
