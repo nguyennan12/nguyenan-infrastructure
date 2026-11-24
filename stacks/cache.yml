@@ -34,6 +34,7 @@ services:
       - "traefik.tcp.routers.redis.tls.certresolver=letsencrypt"
       - "traefik.tcp.routers.redis.service=redis"
       - "traefik.tcp.services.redis.loadbalancer.server.port=6379"
+      - "infra.rollback-test=enabled"
 
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
