@@ -8,7 +8,7 @@ Repository: `rclone:gdrive-backup:static4j-backup-v2` (initial repository ID pre
 
 ## Backup schedule
 
-Daily 02:00 local time: PostgreSQL SQL dump, Redis RDB and ACL (verify ACL is included), MinIO objects and metadata, infrastructure config. Sunday 05:00: integrity check, retention and prune. Keep 7 daily, 4 weekly and 3 monthly snapshots per host/path/tag group. These are sequential snapshots, not a transactionally consistent cross-service point in time. MinIO mirror covers current objects, not full version history. Check Drive quota and trash usage; no guarantee that pruning immediately frees quota.
+Daily 02:00 local time: PostgreSQL SQL dump, Redis RDB and ACL, MinIO objects and metadata, infrastructure config. Sunday 05:00: integrity check, retention and prune. Keep 7 daily, 4 weekly and 3 monthly snapshots per host/path/tag group. These are sequential snapshots, not a transactionally consistent cross-service point in time. MinIO mirror covers current objects, not full version history. Check Drive quota and trash usage; no guarantee that pruning immediately frees quota.
 
 ## Inspect and restore files
 
@@ -47,3 +47,27 @@ sudo crontab -l
 ```
 
 Review every service result, snapshot age and available Google Drive capacity. Keep a separately protected offline copy where possible.
+
+## Backup and restore script inventory
+
+| Script | Responsibility |
+|---|---|
+| backup-all.sh | Run backup components sequentially, aggregate failures |
+| backup-postgres.sh | pg_dumpall, including roles and databases |
+| backup-redis.sh | RDB, redis-check-rdb, persistent users.acl |
+| backup-minio.sh | Current objects, bucket/IAM metadata, configuration reference |
+| backup-infra.sh | Docker metadata, Dockhand and ACME archives, configs, project metadata and protected backup configuration |
+| maintenance.sh | Integrity check, retention and prune |
+| restore-all.sh / restore-infra.sh | Recover selected snapshots/config and empty volumes on a separate host |
+| restore-postgres.sh / restore-redis.sh / restore-minio.sh | Service-specific restore steps; inspect actual script arguments first |
+
+Backup scripts run from `/opt/infra/backup`; management/restore scripts are installed under `/opt/infra/scripts`. Source host is `vps-nguyenan`. Snapshot tags: `postgresql`, `redis`, `minio`, `infrastructure`. Restore related snapshots from the same intended backup run, not blindly the latest per tag. Infrastructure backup includes sensitive Docker inspect output, backup credentials and `/opt/infra/projects`; Dockhand may briefly stop during backup. Restore only into empty intended volumes; isolate recovered Dockhand before starting so it cannot auto-deploy unexpectedly. The restored cron configuration must be reviewed before enabling jobs.
+
+On the current host, inspect the repository without printing credentials:
+
+```bash
+sudo bash -c 'set -a; . /opt/infra/backup/.env; set +a; restic snapshots'
+sudo tail -n 60 /opt/infra/backup/backup.log
+```
+
+The Redis cleanup error was fixed and a successful snapshot `42b795b9` was reported. A saved snapshot alone is not proof of a successful entire backup run; check the aggregate exit status and all four groups. Full service recovery remains untested. Target daily RPO is approximately 24 hours only when every scheduled run succeeds; RTO unknown. Keep access credentials outside the VPS and never overwrite the original backup repository during a drill.

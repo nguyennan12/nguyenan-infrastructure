@@ -18,24 +18,24 @@ Administration endpoints require SSH local forwarding (or local access). Applica
 ## Repository layout
 
 ```text
+.github/workflows/infrastructure-ci.yml
 configs/
   pgbouncer/setup-auth.sql
   traefik/dynamic/tls.yml
+  systemd/infra-sync.service
+  systemd/infra-sync.timer
 scripts/
-  backup-all.sh
-  backup-infra.sh
-  backup-minio.sh
-  backup-postgres.sh
-  backup-redis.sh
-  maintenance.sh
-stacks/
-  gateway.yml
-  database.yml
-  cache.yml
-  storage.yml
+  bootstrap.sh, setup-*.sh
+  backup-*.sh, maintenance.sh
+  restore-*.sh
+  create-project.sh, add-service.sh, remove-service.sh
+  delete-project.sh, list-projects.sh, sync-infra.sh
+  lib/common.sh, postgres.sh, redis.sh, minio.sh
+stacks/{gateway,database,cache,storage}.yml
 docs/
 .env.example
 .gitignore
+.gitattributes
 README.md
 ```
 
@@ -55,6 +55,28 @@ Daily at 02:00 Asia/Ho_Chi_Minh; maintenance on Sunday at 05:00. Retention: 7 da
 
 Never commit live `.env` files, OAuth tokens, Redis ACL hashes, PgBouncer userlists, SQL dumps, TLS private keys or Restic passwords. Use a password manager and restricted local files. Keep recovery credentials outside the VPS.
 
-## Status
+## Quick start (existing VPS)
 
-Initial infrastructure and backup setup completed. Security hardening, external application integration and full disaster recovery testing remain validation tasks. Git-based deployment is a future option; existing stacks are managed through Dockhand.
+```bash
+sudo /opt/infra/scripts/create-project.sh myapp --all
+sudo /opt/infra/scripts/list-projects.sh
+sudo /opt/infra/scripts/add-service.sh myapp --redis
+sudo /opt/infra/backup/backup-all.sh
+```
+
+The add command is illustrative; it skips a service already present. See the project guide for selective provisioning, connection settings and destructive operations. Do not run bootstrap on the existing VPS.
+
+## GitOps
+
+Push changes to `main`. CI validates Compose and Bash, runs secret scanning, then promotes successful main pushes to `production`. Dockhand tracks production for stack deployments; a separate systemd timer tracks production for installed scripts. Both poll at approximately five-minute intervals. Revert a specific bad commit on main rather than force-pushing production. See [Deployment](docs/DEPLOYMENT.md).
+
+## Status — 2026-11-24
+
+- Six running containers; PostgreSQL/Redis/MinIO project isolation exercised in test projects, with manual VitaFlix resources outside V2 management.
+- GitOps label deployment and revert observed on Redis; MinIO fix commit preserved.
+- Modular create/add/remove exercised. A failed MinIO deletion was repaired and completed manually; automatic end-to-end deletion after the fix was intentionally not retested.
+- Restic integrity check and restoration of files from four backup groups succeeded. Full independent-host recovery and recovery time remain unverified.
+- Duplicate daily cron entry was observed; removal and absence of other schedules should be verified. No external application deployment is required or claimed.
+- Suggested first release: `v1.0.0-rc.1`; final release subject to recovery and deletion validation. Legacy migration intentionally omitted.
+
+Documentation reflects the observed setup and prior runbook, not a fresh audit of every source file or live configuration.

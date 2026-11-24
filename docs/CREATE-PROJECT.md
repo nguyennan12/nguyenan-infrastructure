@@ -1,42 +1,45 @@
-# Create a project
+# Modular project lifecycle (V2)
 
-Example project: VitaFlix. Repeat with unique credentials and names for each project.
+V2 is the default for new projects. Legacy migration is intentionally omitted; manually provisioned VitaFlix resources are not owned by these scripts. Run commands on the VPS via SSH as an authorized administrator.
 
-## PostgreSQL
+## Create and inspect
 
-In pgAdmin via SSH tunnel, create Login/Group Role `vitaflix_user` with Login enabled and no superuser/create role/create DB privileges. Set a strong password. Create `vitaflix_db` owned by this role. From the postgres database Query Tool:
-
-```sql
-REVOKE CONNECT ON DATABASE vitaflix_db FROM PUBLIC;
-GRANT CONNECT ON DATABASE vitaflix_db TO vitaflix_user;
+```bash
+sudo /opt/infra/scripts/create-project.sh myapp --postgres --redis
+sudo /opt/infra/scripts/list-projects.sh
 ```
 
-Apply equivalent restrictions to other project databases. Review access to administrative/default databases separately. Verify PgBouncer dynamic auth and connect using the project role, not infra_admin. Transaction pooling may require ORM/driver-specific configuration; use a direct private connection for migrations that need session semantics.
+Use `--postgres`, `--redis`, `--minio`, or `--all`; omit flags for interactive selection. Enter `CREATE myapp` when prompted. Names use lowercase letters/digits, start with a letter, 3–30 characters. MinIO operations request administrator credentials interactively. Credentials are generated and saved in the protected `/opt/infra/projects/myapp/.env`; do not share or commit this file. The manifest `project.json` records service flags and lifecycle status. List reads metadata, not live resource health.
 
-## Redis
+| Service | Resource names | Isolation |
+|---|---|---|
+| PostgreSQL | myapp_db, myapp_user | Database ownership, CONNECT restrictions |
+| Redis | myapp_user, myapp:* | ACL key prefix and command allowlist |
+| MinIO | myapp, myapp_user, myapp-policy | Private bucket and scoped IAM |
 
-Connect as default administrator via RedisInsight Workbench or redis-cli. Generate a strong password and replace the placeholder below (do not save the actual password in Git).
+## Add, remove, delete
 
-```redis
-ACL SETUSER vitaflix_user reset on >REPLACE_WITH_STRONG_PASSWORD ~vitaflix:* +get +set +del +unlink +exists +expire +pexpire +ttl +pttl +mget +mset +incr +decr +ping +hello +select +client|setinfo
-ACL SAVE
+```bash
+sudo /opt/infra/scripts/add-service.sh myapp --minio
+sudo /opt/infra/scripts/remove-service.sh myapp --redis
+sudo /opt/infra/scripts/delete-project.sh myapp
 ```
 
-Use `reset` only when intentionally creating/replacing the entire ACL definition. For password rotation use `resetpass` instead. Test GET/SET under `vitaflix:*` and verify other namespaces are denied. Adjust the explicit command allowlist to application needs; do not grant broad admin access. Ensure clients apply the prefix themselves. Verify ACL is backed up.
+These are separate operations; run only the intended command. Confirm with `ADD myapp`, `REMOVE myapp` or `DELETE myapp`. Remove/delete are destructive: stop dependent applications, verify a successful backup and review scope first. Remove deletes only selected services, including their data. Delete removes all enabled services and metadata. MinIO deletion disables then removes the user, removes the bucket and policy; policy detach was removed after a failed test. Automatic deletion after this fix has not been retested.
 
-## MinIO
+## Failure handling
 
-Via the private Console create bucket `vitaflix`, private access, versioning off for the current backup design. Create a policy `vitaflix-policy` that allows bucket location/list/multipart listing on `arn:aws:s3:::vitaflix`, and GetObject/PutObject/DeleteObject/AbortMultipartUpload/ListMultipartUploadParts on `arn:aws:s3:::vitaflix/*`. Create `vitaflix_user` with a strong unique secret and attach only this policy. Test upload/download/delete on the intended bucket and denied access elsewhere.
+A failure can leave `incomplete` metadata and partially created/deleted resources. Do not blindly retry or set all flags false; do not delete the project directory first. Inspect `project.json`, logs and actual service resources; verify backups. Coordinate with provisioning/sync locks. Repair only the affected resources, update metadata only after verification, and preserve unrelated applications. The current scripts do not provide automatic resume/rollback for incomplete projects. The prior modulartest MinIO cleanup was manual. Legacy projects require separately reviewed cleanup, not V2 deletion.
 
 ## Backend environment example
 
 ```dotenv
-DATABASE_URL=postgresql://vitaflix_user:REPLACE_ME@postgres.static4j.app:6433/vitaflix_db?sslmode=verify-full
-REDIS_URL=rediss://vitaflix_user:REPLACE_ME@redis.static4j.app:6380
-REDIS_KEY_PREFIX=vitaflix:
+DATABASE_URL=postgresql://myapp_user:REPLACE_ME@postgres.static4j.app:6433/myapp_db?sslmode=verify-full
+REDIS_URL=rediss://myapp_user:REPLACE_ME@redis.static4j.app:6380
+REDIS_KEY_PREFIX=myapp:
 S3_ENDPOINT=https://minio.static4j.app
-S3_BUCKET=vitaflix
-S3_ACCESS_KEY=vitaflix_user
+S3_BUCKET=myapp
+S3_ACCESS_KEY=myapp_user
 S3_SECRET_KEY=REPLACE_ME
 S3_REGION=us-east-1
 S3_FORCE_PATH_STYLE=true
@@ -47,3 +50,8 @@ Set real values in backend secret settings. URL-encode passwords in connection U
 ## Acceptance
 
 Verify connection from backend host; successful database query and migration; Redis allowed/denied keys; MinIO allowed/denied operations; backup after provisioning. Add backend egress IPs to NSG if required. Confirm resource usage under load.
+
+
+## Driver and isolation caveats
+
+PgBouncer uses transaction pooling; session-dependent migrations may require a private direct PostgreSQL connection. Review CONNECT privileges on default and existing databases separately. Redis prefixing must be implemented by the application; check driver-required commands against the ACL allowlist. Redis shares memory and eviction across projects. MinIO backups cover current objects, not full version history. Use per-project accounts and verify denial of access to unrelated resources.

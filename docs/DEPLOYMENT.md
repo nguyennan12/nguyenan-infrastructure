@@ -58,3 +58,46 @@ Verify scripts, logging, volume names and backup lock before enabling the schedu
 ## Validation
 
 Check `docker ps`, `docker stats --no-stream`, `free -h`, `vmstat 1 5`, `df -h`. Verify PostgreSQL query through PgBouncer with a project role, Redis TLS PING and namespace restrictions, MinIO HTTPS and project IAM, backup snapshots and restore. Confirm firewall from a permitted and a non-permitted source. Do not mark deployment complete until these tests pass.
+
+## Bootstrap scripts and installation paths
+
+The repository includes `bootstrap.sh`, `setup-*.sh`, and `restore-*.sh`. Review their contents and arguments before use; the complete fresh-host sequence has not been exercised. Bootstrap expects root, Ubuntu 24.04 and no existing containers. Run from the checked-out repository so relative config paths resolve. Install Cockpit and Dockhand as intended by the setup scripts; for recovery, restore Dockhand data before starting it. Do not run setup-cron on an existing host without reconciling its root crontab.
+
+## GitOps workflow
+
+The private repository `nguyennan12/nguyenan-infrastructure` uses `main` for changes and `production` for deployments. `.github/workflows/infrastructure-ci.yml` checks Compose with non-live environment values, recursively validates Bash syntax and ShellCheck errors, scans secrets with Gitleaks, and promotes successful main pushes. Pull requests validate without promoting. This is not a runtime integration test. Branch protection is not configured by choice.
+
+Dockhand uses branch `production`, the four stack files and scheduled sync every five minutes. Keep existing stack names and secrets. A separate root systemd service/timer synchronizes the checkout `/opt/infra/repository` via a read-only GitHub deploy key, installs allowlisted backup and management scripts/modules, and records the last applied commit in `/opt/infra/state/last-sync-commit`. It coordinates with backup/provisioning locks; updates can be postponed. The sync executable `/opt/infra/bin/sync-infra.sh` and systemd units are not automatically replaced by this sync. Review and install changes to them separately; a failed install may leave some files updated.
+
+```bash
+sudo systemctl list-timers infra-sync.timer
+sudo systemctl start infra-sync.service
+sudo journalctl -u infra-sync.service -n 30 --no-pager
+```
+
+## Rollback
+
+Inspect the offending commit; revert that commit on main, not the whole production branch. Resolve conflicts and review the resulting diff before push. For the completed Redis label test the revert was `a525e87`, preserving MinIO fix `3447851`.
+
+```bash
+git log -5 --oneline
+git fetch origin
+git log -3 --oneline origin/production
+```
+
+After a new revert is promoted, check Dockhand sync and container health; separately check installed script sync if affected. Redis test label `infra.rollback-test` appeared and later disappeared after revert. Git rollback does not restore deleted data, previous secret values or incompatible on-disk schemas.
+
+## Routine operations
+
+```bash
+free -h
+df -h /
+vmstat 1 5
+sudo docker ps
+sudo docker stats --no-stream
+sudo docker system df
+sudo crontab -l
+sudo grep -R -n 'backup-all.sh\|maintenance.sh' /etc/cron.d /etc/crontab
+```
+
+The 24 November resource review found a duplicate 02:00 backup line. Keep exactly one daily and one weekly schedule across root crontab and `/etc/cron.d`; verify the correction. Do not prune unused volumes indiscriminately. Review service logs, OOM events and swap-in/out under load.

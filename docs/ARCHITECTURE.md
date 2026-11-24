@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart TD
-  FE[Vercel frontend] --> BE[Backend on Render or another host]
+  BE[Application backend on an authorized host]
   BE --> NSG[Azure NSG]
   NSG --> T[Traefik TLS gateway]
   T --> P[PgBouncer :6432]
@@ -20,7 +20,7 @@ flowchart TD
   A --> M
 ```
 
-Frontend/backend placement is the intended deployment model, not a verified production deployment.
+Application hosting is outside this infrastructure scope; no Render or Vercel deployment is claimed.
 
 ## Host and services
 
@@ -51,6 +51,35 @@ PostgreSQL: database and login role per project, explicit CONNECT restrictions; 
 | 13000 | 3000 | Dockhand |
 | 9090 | 9090 | Cockpit |
 | 8080 | 8080 | Traefik dashboard |
+| 9000 | 9000 | MinIO API |
 | 9001 | 9001 | MinIO Console |
 
 Use localhost binding for tunnels. Keep administrative access separate from public application endpoints.
+
+## Control plane
+
+```mermaid
+flowchart LR
+  M[main] --> C[GitHub Actions validation]
+  C --> P[production]
+  P --> D[Dockhand polling]
+  P --> S[systemd infra-sync.timer]
+  D --> T[Compose stacks]
+  S --> I[Installed scripts and modules]
+  I --> B[Backup and provisioning]
+```
+
+Dockhand and script sync are independent. Stack secrets remain in Dockhand or restricted local files. Script sync uses a read-only deploy key and installs allowlisted files, not arbitrary configuration or secrets; it does not update itself automatically. Provisioning is modular; each project has a protected `.env` and `project.json` service flags/status in `/opt/infra/projects/<name>/`.
+
+## Resource baseline (24 November 2026)
+
+| Component | Configured memory limit | Observed working usage |
+|---|---:|---:|
+| Redis | 128 MiB | 8.96 MiB |
+| PgBouncer | 64 MiB | 0.85 MiB |
+| PostgreSQL | 256 MiB | 5.91 MiB |
+| Traefik | 128 MiB | 18.59 MiB |
+| MinIO | 384 MiB | 85.39 MiB |
+| Dockhand | No smaller explicit limit evidenced | 102.90 MiB |
+
+Host: 836 MiB visible RAM, 389 MiB available; 497 MiB swap used out of 2 GiB; disk 8.7/29 GB used. This is an idle/low-load sample, not a capacity guarantee. Limits are not reserved RAM and their sum exceeds physical memory. Monitor swap activity and OOM events. Redis maxmemory 48 MiB, allkeys-lru; PostgreSQL shared_buffers 64 MB, max_connections 30; PgBouncer transaction pool, default pool size 5, max DB connections 10. MinIO restart policy was deliberately disabled in the earlier setup; review restart behavior before unattended recovery.

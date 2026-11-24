@@ -28,3 +28,11 @@ Never commit live environment values, SQL dumps, Redis ACLs, PgBouncer userlist,
 ## Hardening and monitoring
 
 Check Ubuntu security updates, Docker log rotation, resource pressure, open sockets and Azure NSG. Use `sudo ss -lntup`, `sudo docker ps`, `sudo sshd -T`, `sudo docker info` and inspect log configuration. Apply configuration changes deliberately; Docker daemon changes may require restart and recreated containers. Verify updates and access after changes. Security hardening is a checklist to complete, not a claim that this host is fully hardened.
+
+## GitOps and root execution trust
+
+The GitHub repository is private; a read-only deploy key is used by the VPS checkout. CI promotes main to production with write permission only for the promotion job. Restrict repository collaborators, secure GitHub accounts with MFA, review changes to shell scripts/workflows, and protect branches when feasible. Branch protection is not currently enabled. Any malicious approved script update can execute with root privileges through scheduled tasks. Gitleaks is helpful but does not prove that no secrets exist.
+
+## Current gaps and decisions
+
+Public TLS database/cache ports were intentionally left open to Any in NSG for now; allowlisting is recommended before exposing real workloads. No password rotation is claimed. Verify management sockets, TLS certificate validation and permissions after updates. Never expose the Docker socket or administrative consoles publicly. MinIO image maintenance and mutable tags (`latest`, major-only tags) need review; pin tested versions or digests before relying on reproducible recovery. There is no demonstrated HA, tenant resource quota or full independent-host restore. Do not publish live `.env`, backup configuration or restored files. Keep an offline copy of the Restic password and original OAuth app details.
