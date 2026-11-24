@@ -1,0 +1,22 @@
+[Unit]
+Description=NguyenAn Infrastructure Git Sync
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+
+ExecStart=/opt/infra/bin/sync-infra.sh
+
+Environment=GIT_TERMINAL_PROMPT=0
+
+TimeoutStartSec=180
+UMask=0077
+
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

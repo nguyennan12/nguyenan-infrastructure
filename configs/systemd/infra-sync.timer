@@ -1,0 +1,11 @@
+[Unit]
+Description=Synchronize infrastructure scripts every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+AccuracySec=10s
+Unit=infra-sync.service
+
+[Install]
+WantedBy=timers.target
