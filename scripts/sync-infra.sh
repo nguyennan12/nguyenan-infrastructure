@@ -50,9 +50,9 @@ git -C "$REPO_DIR" checkout --detach "$REMOTE_COMMIT"
 
 echo "Validating shell scripts..."
 
-for script in "$REPO_DIR"/scripts/*.sh; do
-    bash -n "$script"
-done
+find "$REPO_DIR/scripts" \
+    -type f -name '*.sh' -print0 |
+    xargs -0 -r -n1 bash -n
 
 # Avoid updating scripts during an active backup
 exec 8>"$BACKUP_DIR/backup.lock"
@@ -71,6 +71,13 @@ install_script() {
 
     install -m 700 "$source" "$temporary"
     mv -fT "$temporary" "$destination"
+}
+
+exec 7>"$STATE_DIR/provisioning.lock"
+
+flock -n 7 || {
+    echo "Project operation in progress. Sync postponed."
+    exit 0
 }
 
 echo "Synchronizing backup scripts..."
@@ -104,8 +111,12 @@ MANAGEMENT_SCRIPTS=(
     setup-cron.sh
     setup-minio-client.sh
     create-project.sh
+    create-project-v2.sh
     list-projects.sh
     delete-project.sh
+    delete-project-v2.sh
+    add-service.sh
+    remove-service.sh
     restore-all.sh
     restore-infra.sh
     restore-postgres.sh
@@ -117,6 +128,23 @@ for script in "${MANAGEMENT_SCRIPTS[@]}"; do
     install_script \
         "$REPO_DIR/scripts/$script" \
         "$SCRIPTS_DIR/$script"
+done
+
+echo "Synchronizing provisioning modules..."
+
+install -d -m 700 "$SCRIPTS_DIR/lib"
+
+MODULES=(
+    common.sh
+    postgres.sh
+    redis.sh
+    minio.sh
+)
+
+for module in "${MODULES[@]}"; do
+    install_script \
+        "$REPO_DIR/scripts/lib/$module" \
+        "$SCRIPTS_DIR/lib/$module"
 done
 
 printf '%s\n' "$REMOTE_COMMIT" \
