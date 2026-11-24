@@ -15,6 +15,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ==========================================
+  # 1. Validate Docker Compose
+  # ==========================================
   validate-compose:
     name: Validate Docker Compose
     runs-on: ubuntu-latest
@@ -37,11 +40,15 @@ jobs:
       - name: Validate all stacks
         run: |
           set -e
+
           for file in stacks/*.yml; do
             echo "Validating $file"
             docker compose -f "$file" config --quiet
           done
 
+  # ==========================================
+  # 2. Validate Shell Scripts
+  # ==========================================
   validate-scripts:
     name: Validate Shell Scripts
     runs-on: ubuntu-latest
@@ -56,15 +63,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y shellcheck
 
+      - name: List shell scripts
+        run: |
+          find scripts -type f -name '*.sh' | sort
+
       - name: Check Bash syntax
         run: |
-          for file in scripts/*.sh; do
-            bash -n "$file" || exit 1
-          done
+          find scripts -type f -name '*.sh' -print0 |
+            xargs -0 -r -n1 bash -n
 
       - name: Run ShellCheck
-        run: shellcheck --severity=error scripts/*.sh
+        run: |
+          find scripts -type f -name '*.sh' -print0 |
+            xargs -0 -r shellcheck --severity=error
 
+  # ==========================================
+  # 3. Secret Scanning
+  # ==========================================
   secret-scanning:
     name: Secret Scanning
     runs-on: ubuntu-latest
@@ -82,10 +97,14 @@ jobs:
             -v "$PWD:/repo:ro" \
             zricethezav/gitleaks:v8.24.2 \
             git /repo --redact --verbose
-  
+
+  # ==========================================
+  # 4. Promote validated commit to Production
+  # ==========================================
   promote-production:
     name: Promote to Production
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     needs:
       - validate-compose
@@ -104,4 +123,11 @@ jobs:
           fetch-depth: 0
 
       - name: Promote validated commit
-        run: git push origin HEAD:refs/heads/production
+        run: |
+          echo "Promoting commit $(git rev-parse HEAD)"
+          git push origin HEAD:refs/heads/production
+
+      - name: Promotion summary
+        run: |
+          echo "Production promotion completed successfully."
+          echo "Commit: $(git rev-parse HEAD)"
