@@ -32,6 +32,8 @@ bash "$SCRIPT_DIR/setup-system.sh"
 bash "$SCRIPT_DIR/setup-docker.sh"
 bash "$SCRIPT_DIR/setup-network.sh"
 bash "$SCRIPT_DIR/setup-directories.sh"
+bash "$SCRIPT_DIR/setup-cockpit.sh"
+bash "$SCRIPT_DIR/setup-dockhand.sh"
 
 echo "======================================"
 echo " Base infrastructure setup completed"
