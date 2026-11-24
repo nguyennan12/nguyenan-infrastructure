@@ -111,10 +111,8 @@ MANAGEMENT_SCRIPTS=(
     setup-cron.sh
     setup-minio-client.sh
     create-project.sh
-    create-project-v2.sh
     list-projects.sh
     delete-project.sh
-    delete-project-v2.sh
     add-service.sh
     remove-service.sh
     restore-all.sh

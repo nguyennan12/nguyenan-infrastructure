@@ -1,243 +1,178 @@
 #!/usr/bin/env bash
+
 set -euo pipefail
+umask 077
 
-if [ "$EUID" -ne 0 ]; then
-    echo "Please run with sudo."
-    exit 1
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ "$#" -ne 1 ]; then
-    echo "Usage: $0 <project-name>"
+source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/postgres.sh"
+source "$SCRIPT_DIR/lib/redis.sh"
+source "$SCRIPT_DIR/lib/minio.sh"
+
+require_root
+
+if [ "$#" -lt 1 ]; then
+    echo "Usage: $0 <project-name> [services]"
+    echo "Options:"
+    echo "  --postgres"
+    echo "  --redis"
+    echo "  --minio"
+    echo "  --all"
     exit 1
 fi
 
 PROJECT="$1"
+shift
 
-if [[ ! "$PROJECT" =~ ^[a-z][a-z0-9]{2,29}$ ]]; then
-    echo "Use 3-30 lowercase letters or numbers."
+validate_project "$PROJECT"
+init_project_paths "$PROJECT"
+
+USE_POSTGRES=false
+USE_REDIS=false
+USE_MINIO=false
+
+if [ "$#" -eq 0 ]; then
+
+    echo "======================================"
+    echo " Infrastructure Project Provisioning"
+    echo "======================================"
+    echo "Project: $PROJECT"
+    echo
+    echo "1. PostgreSQL"
+    echo "2. Redis"
+    echo "3. MinIO"
+    echo "4. All services"
+    echo
+
+    read -r -p "Select services (example: 1 2): " -a choices
+
+    for choice in "${choices[@]}"; do
+        case "$choice" in
+            1) USE_POSTGRES=true ;;
+            2) USE_REDIS=true ;;
+            3) USE_MINIO=true ;;
+            4)
+                USE_POSTGRES=true
+                USE_REDIS=true
+                USE_MINIO=true
+                ;;
+            *)
+                echo "Invalid selection: $choice"
+                exit 1
+                ;;
+        esac
+    done
+
+else
+
+    for arg in "$@"; do
+        case "$arg" in
+            --postgres) USE_POSTGRES=true ;;
+            --redis) USE_REDIS=true ;;
+            --minio) USE_MINIO=true ;;
+            --all)
+                USE_POSTGRES=true
+                USE_REDIS=true
+                USE_MINIO=true
+                ;;
+            *)
+                echo "Unknown argument: $arg"
+                exit 1
+                ;;
+        esac
+    done
+fi
+
+if ! $USE_POSTGRES &&
+   ! $USE_REDIS &&
+   ! $USE_MINIO; then
+
+    echo "Select at least one service."
     exit 1
 fi
 
-DB_NAME="${PROJECT}_db"
-DB_USER="${PROJECT}_user"
-REDIS_USER="${PROJECT}_user"
-MINIO_USER="${PROJECT}_user"
-MINIO_BUCKET="$PROJECT"
-MINIO_POLICY="${PROJECT}-policy"
+command -v jq >/dev/null
+command -v openssl >/dev/null
 
-PROJECT_DIR="/opt/infra/projects/$PROJECT"
+install -d -m 700 "$PROJECTS_DIR"
+install -d -m 700 /opt/infra/state
 
-umask 077
+exec 9>/opt/infra/state/provisioning.lock
+
+flock -n 9 || {
+    echo "Another provisioning task is running."
+    exit 1
+}
 
 if [ -e "$PROJECT_DIR" ]; then
-    echo "Project directory already exists."
+    echo "Project already exists."
     exit 1
 fi
 
-DB_PASSWORD="$(openssl rand -hex 24)"
-REDIS_PASSWORD="$(openssl rand -hex 24)"
-MINIO_PASSWORD="$(openssl rand -hex 24)"
+# Check selected services only
+if $USE_POSTGRES; then
+    require_container infra-postgres
+fi
 
-# Check required containers
-for container in infra-postgres infra-redis infra-minio; do
-    if [ "$(docker inspect -f '{{.State.Running}}' "$container")" != "true" ]; then
-        echo "Container $container is not running."
-        exit 1
-    fi
-done
+if $USE_REDIS; then
+    require_container infra-redis
+fi
 
-command -v mc >/dev/null
+if $USE_MINIO; then
+    require_container infra-minio
+    command -v mc >/dev/null
+fi
 
-# Load Redis admin credentials
-REDIS_ADMIN_PASSWORD="$(cat /opt/infra/backup/.redis-password)"
-
-# Read MinIO root credentials without displaying them
-read -r -p "MinIO root username: " MINIO_ROOT_USER
-read -r -s -p "MinIO root password: " MINIO_ROOT_PASSWORD
 echo
+echo "========== PROVISIONING PLAN =========="
+echo "Project:    $PROJECT"
+echo "PostgreSQL: $USE_POSTGRES"
+echo "Redis:      $USE_REDIS"
+echo "MinIO:      $USE_MINIO"
+echo "======================================"
 
-MC_CONFIG_DIR="$(mktemp -d)"
-export MC_CONFIG_DIR
+read -r -p "Type CREATE $PROJECT to continue: " CONFIRM
 
-trap 'rm -rf "$MC_CONFIG_DIR"' EXIT
-
-mc alias set provisioning-local \
-    http://127.0.0.1:9000 \
-    "$MINIO_ROOT_USER" \
-    "$MINIO_ROOT_PASSWORD" >/dev/null
-
-pg() {
-    docker exec -i infra-postgres \
-        psql -X -v ON_ERROR_STOP=1 \
-        -U infra_admin -d postgres "$@"
-}
-
-redis() {
-    docker exec -i \
-        -e REDISCLI_AUTH="$REDIS_ADMIN_PASSWORD" \
-        infra-redis redis-cli --raw "$@"
-}
-
-echo "Checking existing resources..."
-
-DB_EXISTS="$(pg -Atc "
-SELECT count(*) FROM pg_database
-WHERE datname = '$DB_NAME';
-")"
-
-ROLE_EXISTS="$(pg -Atc "
-SELECT count(*) FROM pg_roles
-WHERE rolname = '$DB_USER';
-")"
-
-if [ "$DB_EXISTS" != "0" ] || [ "$ROLE_EXISTS" != "0" ]; then
-    echo "PostgreSQL resources already exist."
+if [ "$CONFIRM" != "CREATE $PROJECT" ]; then
+    echo "Provisioning cancelled."
     exit 1
 fi
 
-test "$(redis PING)" = "PONG"
+mkdir -m 700 "$PROJECT_DIR"
 
-REDIS_USERS="$(redis ACL USERS)"
+printf 'PROJECT_NAME=%s\n' "$PROJECT" > "$ENV_FILE"
+chmod 600 "$ENV_FILE"
 
-if grep -Fxq "$REDIS_USER" <<< "$REDIS_USERS"; then
-    echo "Redis user already exists."
-    exit 1
+init_manifest
+
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then
+    set_project_status incomplete || true
+    echo "Provisioning failed. Review partial resources."
+fi' EXIT
+
+if $USE_POSTGRES; then
+    create_postgres
 fi
 
-mc admin info provisioning-local >/dev/null
-
-MINIO_USERS="$(mc admin user list provisioning-local)"
-MINIO_BUCKETS="$(mc ls provisioning-local)"
-MINIO_POLICIES="$(mc admin policy list provisioning-local)"
-
-if grep -Fwq "$MINIO_USER" <<< "$MINIO_USERS" ||
-   grep -Fq "$MINIO_BUCKET/" <<< "$MINIO_BUCKETS" ||
-   grep -Fxq "$MINIO_POLICY" <<< "$MINIO_POLICIES"; then
-    echo "MinIO resources already exist."
-    exit 1
+if $USE_REDIS; then
+    create_redis
 fi
 
-# Save credentials before provisioning
-install -d -m 700 "$PROJECT_DIR"
+if $USE_MINIO; then
+    create_minio
+fi
 
-trap 'rm -rf "$MC_CONFIG_DIR"; echo "Provisioning failed. Check partial resources in $PROJECT_DIR."' ERR
+set_project_status provisioned
 
-cat > "$PROJECT_DIR/.env" <<EOF
-PROJECT_NAME=$PROJECT
+trap - EXIT
 
-POSTGRES_HOST=postgres.static4j.app
-POSTGRES_PORT=6433
-POSTGRES_DB=$DB_NAME
-POSTGRES_USER=$DB_USER
-POSTGRES_PASSWORD=$DB_PASSWORD
-DATABASE_URL=postgresql://$DB_USER:$DB_PASSWORD@postgres.static4j.app:6433/$DB_NAME?sslmode=verify-full
-
-REDIS_HOST=redis.static4j.app
-REDIS_PORT=6380
-REDIS_USER=$REDIS_USER
-REDIS_PASSWORD=$REDIS_PASSWORD
-REDIS_KEY_PREFIX=$PROJECT:
-REDIS_URL=rediss://$REDIS_USER:$REDIS_PASSWORD@redis.static4j.app:6380
-
-S3_ENDPOINT=https://minio.static4j.app
-S3_BUCKET=$MINIO_BUCKET
-S3_ACCESS_KEY=$MINIO_USER
-S3_SECRET_KEY=$MINIO_PASSWORD
-S3_REGION=us-east-1
-S3_FORCE_PATH_STYLE=true
-EOF
-
-chmod 600 "$PROJECT_DIR/.env"
-
-echo "[1/3] Creating PostgreSQL resources..."
-
-pg <<SQL
-CREATE ROLE "$DB_USER"
-    LOGIN
-    PASSWORD '$DB_PASSWORD'
-    NOSUPERUSER
-    NOCREATEDB
-    NOCREATEROLE
-    NOREPLICATION;
-
-CREATE DATABASE "$DB_NAME"
-    OWNER "$DB_USER";
-
-REVOKE CONNECT ON DATABASE "$DB_NAME" FROM PUBLIC;
-
-GRANT CONNECT ON DATABASE "$DB_NAME" TO "$DB_USER";
-SQL
-
-echo "[2/3] Creating Redis user..."
-
-RESULT="$(redis ACL SETUSER "$REDIS_USER" \
-    reset on ">$REDIS_PASSWORD" \
-    "~$PROJECT:*" \
-    +ping +get +set +del +unlink \
-    +exists +expire +pexpire +ttl +pttl \
-    +mget +mset +incr +decr \
-    +hget +hset +hdel +hgetall)"
-
-test "$RESULT" = "OK"
-test "$(redis ACL SAVE)" = "OK"
-
-echo "[3/3] Creating MinIO resources..."
-
-mc mb "provisioning-local/$MINIO_BUCKET"
-
-cat > "$PROJECT_DIR/minio-policy.json" <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "s3:ListBucket",
-        "s3:GetBucketLocation",
-        "s3:ListBucketMultipartUploads"
-      ],
-      "Resource": [
-        "arn:aws:s3:::$MINIO_BUCKET"
-      ]
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:DeleteObject",
-        "s3:AbortMultipartUpload",
-        "s3:ListMultipartUploadParts"
-      ],
-      "Resource": [
-        "arn:aws:s3:::$MINIO_BUCKET/*"
-      ]
-    }
-  ]
-}
-EOF
-
-mc admin policy create \
-    provisioning-local \
-    "$MINIO_POLICY" \
-    "$PROJECT_DIR/minio-policy.json"
-
-mc admin user add \
-    provisioning-local \
-    "$MINIO_USER" \
-    "$MINIO_PASSWORD"
-
-mc admin policy attach \
-    provisioning-local \
-    "$MINIO_POLICY" \
-    --user "$MINIO_USER"
-
-touch "$PROJECT_DIR/.provisioned"
-
+echo
 echo "======================================"
 echo "Project created successfully: $PROJECT"
-echo "Database: $DB_NAME"
-echo "Redis prefix: $PROJECT:*"
-echo "MinIO bucket: $MINIO_BUCKET"
-echo "Credentials: $PROJECT_DIR/.env"
 echo "======================================"
+
+jq '.services' "$MANIFEST"
+
+echo "Credentials: $ENV_FILE"
+echo "Manifest: $MANIFEST"
