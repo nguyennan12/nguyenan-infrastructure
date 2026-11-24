@@ -9,14 +9,31 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+command -v jq >/dev/null
+
+service_status() {
+    local manifest="$1"
+    local service="$2"
+
+    if jq -e \
+        --arg service "$service" \
+        '.services[$service] == true' \
+        "$manifest" >/dev/null; then
+
+        echo "YES"
+    else
+        echo "-"
+    fi
+}
+
 echo "===== Infrastructure Projects ====="
 echo
 
-printf "%-20s %-25s %-18s %-15s\n" \
-    "PROJECT" "DATABASE" "BUCKET" "STATUS"
+printf "%-20s %-12s %-10s %-10s %-15s\n" \
+    "PROJECT" "POSTGRESQL" "REDIS" "MINIO" "STATUS"
 
 printf '%s\n' \
-    "--------------------------------------------------------------------------"
+    "-----------------------------------------------------------------------"
 
 COUNT=0
 
@@ -25,17 +42,37 @@ if [ -d "$PROJECTS_DIR" ]; then
         [ -d "$dir" ] || continue
 
         PROJECT="$(basename "$dir")"
+        MANIFEST="$dir/project.json"
 
-        if [ -f "$dir/.provisioned" ]; then
-            STATUS="Provisioned"
+        if [ -f "$MANIFEST" ]; then
+
+            POSTGRES="$(service_status "$MANIFEST" postgres)"
+            REDIS="$(service_status "$MANIFEST" redis)"
+            MINIO="$(service_status "$MANIFEST" minio)"
+
+            STATUS="$(jq -r '.status // "unknown"' "$MANIFEST")"
+
+        elif [ -f "$dir/.provisioned" ]; then
+
+            POSTGRES="YES"
+            REDIS="YES"
+            MINIO="YES"
+            STATUS="Legacy"
+
         else
+
+            POSTGRES="?"
+            REDIS="?"
+            MINIO="?"
             STATUS="Incomplete"
+
         fi
 
-        printf "%-20s %-25s %-18s %-15s\n" \
+        printf "%-20s %-12s %-10s %-10s %-15s\n" \
             "$PROJECT" \
-            "${PROJECT}_db" \
-            "$PROJECT" \
+            "$POSTGRES" \
+            "$REDIS" \
+            "$MINIO" \
             "$STATUS"
 
         COUNT=$((COUNT + 1))
