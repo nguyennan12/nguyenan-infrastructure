@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
+
 set -euo pipefail
+umask 077
 
 if [ "$EUID" -ne 0 ]; then
     echo "Please run with sudo."
@@ -13,25 +15,54 @@ fi
 
 BACKUP_DIR="$(realpath "$1")"
 
-umask 077
+INFRA_DIR="/opt/infra"
+PROJECTS_DIR="$INFRA_DIR/projects"
 
+echo "===== Infrastructure restore started: $(date -Is) ====="
+
+# Validate backup files
 test -s "$BACKUP_DIR/volumes/dockhand.tar"
 test -s "$BACKUP_DIR/volumes/traefik-certs.tar"
-test -d "$BACKUP_DIR/config"
 
-# Restore before creating service containers
+test -d "$BACKUP_DIR/config"
+test -d "$BACKUP_DIR/config/backup"
+test -d "$BACKUP_DIR/config/traefik"
+test -d "$BACKUP_DIR/config/pgbouncer"
+
+for file in .env .redis-password rclone.conf; do
+    test -s "$BACKUP_DIR/config/backup/$file"
+done
+
+# Prevent accidental restore on existing infrastructure
 if [ -n "$(docker ps -aq)" ]; then
     echo "Existing Docker containers detected."
     echo "Restore requires a fresh recovery VPS."
     exit 1
 fi
 
-read -r -p "Type RESTORE to continue: " CONFIRM
-[ "$CONFIRM" = "RESTORE" ] || exit 1
+if [ -d "$PROJECTS_DIR" ] &&
+   [ -n "$(ls -A "$PROJECTS_DIR")" ]; then
+    echo "Existing project configurations detected."
+    echo "Restore aborted."
+    exit 1
+fi
 
+echo "WARNING: This operation restores infrastructure data."
+echo "Only execute on a fresh recovery VPS."
+
+read -r -p "Type RESTORE to continue: " CONFIRM
+
+if [ "$CONFIRM" != "RESTORE" ]; then
+    echo "Restore cancelled."
+    exit 1
+fi
+
+# Restore Docker volume
 restore_volume() {
     local volume="$1"
     local archive="$2"
+
+    echo "Restoring volume: $volume"
 
     docker volume create "$volume" >/dev/null
 
@@ -48,10 +79,11 @@ restore_volume() {
             tar -xpf /backup.tar -C /target
         '
 
-    echo "Restored volume: $volume"
+    echo "Volume restored: $volume"
 }
 
-echo "Restoring Docker volumes..."
+# Restore Dockhand data
+echo "[1/5] Restoring Docker volumes..."
 
 restore_volume \
     dockhand_data \
@@ -61,25 +93,79 @@ restore_volume \
     infra-gateway_traefik_certs \
     "$BACKUP_DIR/volumes/traefik-certs.tar"
 
-echo "Restoring infrastructure configuration..."
+# Prepare infrastructure directories
+echo "[2/5] Preparing infrastructure directories..."
 
-install -d -m 755 /opt/infra/traefik
-install -d -m 700 /opt/infra/pgbouncer
-install -d -m 700 /opt/infra/backup
+install -d -m 755 "$INFRA_DIR"
+install -d -m 755 "$INFRA_DIR/traefik"
+install -d -m 700 "$INFRA_DIR/pgbouncer"
+install -d -m 700 "$INFRA_DIR/backup"
+install -d -m 700 "$PROJECTS_DIR"
+
+# Restore service configuration
+echo "[3/5] Restoring service configurations..."
 
 cp -a "$BACKUP_DIR/config/traefik/." \
-    /opt/infra/traefik/
+    "$INFRA_DIR/traefik/"
 
 cp -a "$BACKUP_DIR/config/pgbouncer/." \
-    /opt/infra/pgbouncer/
+    "$INFRA_DIR/pgbouncer/"
 
-# Restore backup credentials without replacing newer scripts
+chmod -R go-rwx "$INFRA_DIR/pgbouncer"
+
+# Restore backup credentials
+echo "[4/5] Restoring backup credentials..."
+
 for file in .env .redis-password rclone.conf; do
     install -m 600 \
         "$BACKUP_DIR/config/backup/$file" \
-        "/opt/infra/backup/$file"
+        "$INFRA_DIR/backup/$file"
 done
 
+# Restore project configurations
+echo "[5/5] Restoring project configurations..."
+
+if [ -d "$BACKUP_DIR/config/projects" ]; then
+
+    cp -a "$BACKUP_DIR/config/projects/." \
+        "$PROJECTS_DIR/"
+
+    chmod -R go-rwx "$PROJECTS_DIR"
+
+    find "$PROJECTS_DIR" -type d \
+        -exec chmod 700 {} \;
+
+    find "$PROJECTS_DIR" -type f \
+        -exec chmod 600 {} \;
+
+    echo "Project configurations restored."
+
+else
+    echo "No project configurations found in backup."
+fi
+
+echo "======================================"
 echo "Infrastructure restore completed."
-echo "Review configuration before deploying containers."
+echo "======================================"
+
+echo "Restored components:"
+echo "- Dockhand data"
+echo "- Traefik certificates"
+echo "- Traefik configuration"
+echo "- PgBouncer configuration"
+echo "- Backup credentials"
+echo "- Project configurations"
+
+echo ""
+echo "Next steps:"
+echo "1. Review restored configuration."
+echo "2. Verify Restic password is available."
+echo "3. Restore PostgreSQL, Redis and MinIO."
+echo "4. Start Dockhand and infrastructure stacks safely."
+echo "5. Verify all services."
+echo "6. Enable backup cron after recovery."
+
+echo ""
 echo "Cron has not been enabled."
+
+echo "===== Infrastructure restore completed: $(date -Is) ====="
