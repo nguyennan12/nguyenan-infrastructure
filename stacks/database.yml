@@ -1,0 +1,89 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: infra-postgres
+    restart: unless-stopped
+    mem_limit: 256m
+
+    environment:
+      POSTGRES_USER: infra_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+      TZ: Asia/Ho_Chi_Minh
+
+    command:
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - max_connections=30
+      - -c
+      - work_mem=2MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - effective_cache_size=128MB
+
+    ports:
+      - "127.0.0.1:5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U infra_admin -d postgres"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: infra-pgbouncer
+    restart: unless-stopped
+    mem_limit: 64m
+
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: pgbouncer_auth
+      DB_PASSWORD: ${PGBOUNCER_AUTH_PASSWORD}
+    
+      AUTH_TYPE: scram-sha-256
+      AUTH_USER: pgbouncer_auth
+      AUTH_DBNAME: postgres
+      AUTH_QUERY: "SELECT * FROM pgbouncer.get_auth($$1)"
+    
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 100
+      DEFAULT_POOL_SIZE: 5
+      MAX_DB_CONNECTIONS: 10
+      LISTEN_PORT: 6432
+
+    ports:
+      - "127.0.0.1:6432:6432"
+
+    networks:
+      - default
+      - proxy
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.tcp.routers.postgres.rule=HostSNI(`postgres.static4j.app`)"
+      - "traefik.tcp.routers.postgres.entrypoints=postgres"
+      - "traefik.tcp.routers.postgres.tls=true"
+      - "traefik.tcp.routers.postgres.tls.certresolver=letsencrypt"
+      - "traefik.tcp.routers.postgres.tls.options=postgres@file"
+      - "traefik.tcp.routers.postgres.service=postgres"
+      - "traefik.tcp.services.postgres.loadbalancer.server.port=6432"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+
+networks:
+  proxy:
+    external: true

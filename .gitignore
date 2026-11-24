@@ -1,0 +1,34 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+*.key
+*.pem
+.restic-password
+.redis-password
+rclone.conf
+users.acl
+userlist.txt
+acme.json
+
+# Database & Backup
+*.sql
+*.rdb
+*.aof
+*.tar
+*.zip
+
+staging/
+dr-test/
+restore-test/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+*.sql
+!configs/pgbouncer/setup-auth.sql
