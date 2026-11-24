@@ -102,7 +102,10 @@ MANAGEMENT_SCRIPTS=(
     setup-dockhand.sh
     setup-backup.sh
     setup-cron.sh
+    setup-minio-client.sh
     create-project.sh
+    list-projects.sh
+    delete-project.sh
     restore-all.sh
     restore-infra.sh
     restore-postgres.sh
