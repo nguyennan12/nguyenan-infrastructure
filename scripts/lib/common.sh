@@ -96,3 +96,48 @@ has_service() {
         '.services[$service] == true' \
         "$MANIFEST" >/dev/null
 }
+
+require_managed_project() {
+    if [ ! -f "$MANIFEST" ]; then
+        echo "Project manifest not found."
+        echo "Legacy projects require migration first."
+        exit 1
+    fi
+
+    test -f "$ENV_FILE"
+
+    if ! jq -e --arg name "$PROJECT" '
+        .name == $name and
+        .status == "provisioned" and
+        (.services.postgres | type == "boolean") and
+        (.services.redis | type == "boolean") and
+        (.services.minio | type == "boolean")
+    ' "$MANIFEST" >/dev/null; then
+        echo "Invalid or incomplete project manifest."
+        exit 1
+    fi
+}
+
+remove_env_vars() {
+    local pattern="$1"
+    local temp
+
+    temp="$(mktemp "$PROJECT_DIR/.env.XXXXXX")"
+
+    awk -F= -v pattern="$pattern" \
+        '$1 !~ pattern' "$ENV_FILE" > "$temp"
+
+    chmod 600 "$temp"
+    mv -f "$temp" "$ENV_FILE"
+}
+
+acquire_project_lock() {
+    install -d -m 700 /opt/infra/state
+
+    exec 9>/opt/infra/state/provisioning.lock
+
+    flock -n 9 || {
+        echo "Another provisioning task is running."
+        exit 1
+    }
+}

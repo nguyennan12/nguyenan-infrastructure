@@ -111,3 +111,58 @@ EOF
 
     echo "MinIO provisioned successfully."
 )
+
+remove_minio() (
+    require_container infra-minio
+
+    command -v mc >/dev/null
+
+    echo "Removing MinIO resources..."
+
+    local root_user
+    local root_password
+
+    read -r -p "MinIO root username: " root_user
+    read -r -s -p "MinIO root password: " root_password
+    echo
+
+    export MC_CONFIG_DIR
+    MC_CONFIG_DIR="$(mktemp -d)"
+
+    trap 'rm -rf "$MC_CONFIG_DIR"' EXIT
+
+    mc alias set deletion-local \
+        http://127.0.0.1:9000 \
+        "$root_user" \
+        "$root_password" >/dev/null
+
+    mc admin info deletion-local >/dev/null
+
+    mc admin user disable \
+        deletion-local \
+        "$MINIO_USER"
+
+    mc admin policy detach \
+        deletion-local \
+        "$MINIO_POLICY" \
+        --user "$MINIO_USER"
+
+    mc admin user remove \
+        deletion-local \
+        "$MINIO_USER"
+
+    mc rb --force \
+        "deletion-local/$MINIO_BUCKET"
+
+    mc admin policy remove \
+        deletion-local \
+        "$MINIO_POLICY"
+
+    rm -f "$PROJECT_DIR/minio-policy.json"
+
+    remove_env_vars '^S3_.*$'
+
+    set_service_state minio false
+
+    echo "MinIO removed successfully."
+)

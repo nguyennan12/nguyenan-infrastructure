@@ -56,3 +56,63 @@ EOF
 
     echo "Redis provisioned successfully."
 }
+
+remove_redis() {
+    require_container infra-redis
+
+    echo "Removing Redis resources..."
+
+    test "$(redis_admin PING)" = "PONG"
+
+    # Disable access and disconnect existing clients
+    test "$(redis_admin ACL SETUSER "$REDIS_USER" off)" = "OK"
+
+    redis_admin CLIENT KILL USER "$REDIS_USER"
+
+    test "$(redis_admin ACL SAVE)" = "OK"
+
+    # Delete matching keys in bounded batches.
+    # Lua preserves keys containing special characters.
+    local cursor=0
+    local result
+
+    while true; do
+        result="$(redis_admin EVAL '
+            local result = redis.call(
+                "SCAN", ARGV[1],
+                "MATCH", ARGV[2],
+                "COUNT", 100
+            )
+
+            for _, key in ipairs(result[2]) do
+                redis.call("UNLINK", key)
+            end
+
+            return result[1]
+        ' 0 "$cursor" "$PROJECT:*")"
+
+        if [[ ! "$result" =~ ^[0-9]+$ ]]; then
+            echo "Redis cleanup failed."
+            return 1
+        fi
+
+        cursor="$result"
+
+        [ "$cursor" != "0" ] || break
+    done
+
+    if [ -n "$(redis_admin --scan --pattern "$PROJECT:*")" ]; then
+        echo "Redis keys remain. Review manually."
+        return 1
+    fi
+
+    redis_admin ACL DELUSER "$REDIS_USER"
+
+    test "$(redis_admin ACL SAVE)" = "OK"
+
+    remove_env_vars '^REDIS_.*$'
+
+    set_service_state redis false
+
+    echo "Redis removed successfully."
+}

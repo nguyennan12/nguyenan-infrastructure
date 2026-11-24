@@ -66,3 +66,45 @@ SQL
 
     echo "PostgreSQL provisioned successfully."
 }
+
+remove_postgres() {
+    require_container infra-postgres
+
+    echo "Removing PostgreSQL resources..."
+
+    pg_admin -c "ALTER ROLE \"$DB_USER\" NOLOGIN;"
+
+    pg_admin -c "
+        DROP DATABASE IF EXISTS \"$DB_NAME\" WITH (FORCE);
+    "
+
+    pg_admin -c "
+        DROP ROLE IF EXISTS \"$DB_USER\";
+    "
+
+    remove_env_vars '^(POSTGRES_.*|DATABASE_URL)$'
+
+    set_service_state postgres false
+
+    echo "PostgreSQL removed successfully."
+}remove_postgres() {
+    require_container infra-postgres
+
+    echo "Removing PostgreSQL resources..."
+
+    pg_admin -c "ALTER ROLE \"$DB_USER\" NOLOGIN;"
+
+    pg_admin -c "
+        DROP DATABASE IF EXISTS \"$DB_NAME\" WITH (FORCE);
+    "
+
+    pg_admin -c "
+        DROP ROLE IF EXISTS \"$DB_USER\";
+    "
+
+    remove_env_vars '^(POSTGRES_.*|DATABASE_URL)$'
+
+    set_service_state postgres false
+
+    echo "PostgreSQL removed successfully."
+}
