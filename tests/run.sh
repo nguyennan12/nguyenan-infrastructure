@@ -312,7 +312,9 @@ grep -Fq 'scripts/projects/create-project.sh' "$REPO_DIR/scripts/deployment/sync
     fail "sync does not map the refactored project CLI"
 grep -Fq 'create-project.sh' "$REPO_DIR/scripts/deployment/sync-infra.sh" ||
     fail "sync does not preserve the public create-project runtime command"
-grep -Fq 'scripts/backup/backup-all.sh' "$REPO_DIR/scripts/deployment/sync-infra.sh" ||
+grep -Fq 'for name in backup-all backup-infra maintenance' "$REPO_DIR/scripts/deployment/sync-infra.sh" ||
+    fail "sync does not include the backup orchestrator in its installation plan"
+grep -Fq 'add_file "scripts/backup/$name.sh" "$BACKUP_DIR/$name.sh"' "$REPO_DIR/scripts/deployment/sync-infra.sh" ||
     fail "sync does not preserve the backup orchestrator runtime command"
 
 INSTALLED_LAYOUT="$TEST_ROOT/installed-layout"
