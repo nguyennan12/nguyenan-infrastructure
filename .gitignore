@@ -39,3 +39,8 @@ infrastructure.env
 deployment.env
 !deployment.env.example
 secrets/
+
+# Runtime monitoring and synchronization state, if copied into a local clone
+.discord-webhook
+state/
+sync-transaction/

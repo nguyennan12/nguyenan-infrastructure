@@ -88,7 +88,7 @@ No registry change switches an existing Dockhand host to Standalone ownership.
 
 GitOps does not create Dockhand stacks automatically. Register the same Compose file once with the exact `project_name`, environment and secrets. Configure deployment order operationally and verify readiness.
 
-The installed `sync-infra.sh` does not update itself. Review and install a new sync script manually before expecting new registered files to synchronize.
+The stable launcher remains a manually installed entrypoint; it fetches and runs the worker from the pinned production revision. See [the migration guide](SYNC-LAUNCHER-MIGRATION.md) before relying on new registered files in an older installation.
 
 ## 11. Provision for a project
 

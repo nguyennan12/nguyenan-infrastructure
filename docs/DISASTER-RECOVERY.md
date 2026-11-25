@@ -4,7 +4,7 @@
 
 Google account access; original Google OAuth client ID and secret; protected Rclone configuration or ability to reauthorize the same OAuth application; Restic password; private Git repository access; DNS and cloud account access. With `drive.file`, a different OAuth application may not see the original backup objects. Do not rely on a credential that exists only inside the encrypted backup.
 
-Repository: `rclone:gdrive-backup:infra-backup-v2` (or your configured backup bucket).
+Repository: use the configured `RESTIC_REPOSITORY` (for example, `rclone:<remote>:<repository-folder>`).
 
 ## Backup schedule
 
@@ -90,7 +90,7 @@ Review every service result, snapshot age and available Google Drive capacity. K
 | restore-all.sh / restore-infra.sh | Recover selected snapshots/config and empty volumes on a separate host |
 | restore-postgres.sh / restore-redis.sh / restore-minio.sh | Service-specific restore steps; inspect actual script arguments first |
 
-Backup scripts run from `/opt/infra/backup`; management/restore scripts are installed under `/opt/infra/scripts`. Source host is `vps-nguyenan`. Current snapshot tags are `postgresql`, `redis`, `minio`, `infrastructure`; registry extensions must document any additional tag. Restore related snapshots from the same intended backup run, not blindly the latest per tag. Infrastructure backup includes sensitive Docker inspect output, backup credentials, portable secrets, registry reference data and `/opt/infra/projects`; Dockhand may briefly stop during a GitOps backup. Restore executable service code only from a reviewed repository revision, not from backup metadata. Restore only into empty intended volumes; isolate recovered Dockhand before starting so it cannot auto-deploy unexpectedly. Follow the registry plan and service-specific runbooks; for the existing services the operational order remains infrastructure preparation, Redis volume preparation, PostgreSQL-only startup and restore, full deployment, MinIO restore, verification, then backup schedule. The restored cron configuration must be reviewed before enabling jobs.
+Backup scripts run from `/opt/infra/backup`; management/restore scripts are installed under `/opt/infra/scripts`. Use the source host recorded in your backup configuration. Current snapshot tags are `postgresql`, `redis`, `minio`, `infrastructure`; registry extensions must document any additional tag. Restore related snapshots from the same intended backup run, not blindly the latest per tag. Infrastructure backup includes sensitive Docker inspect output, backup credentials, portable secrets, registry reference data and `/opt/infra/projects`; Dockhand may briefly stop during a GitOps backup. Restore executable service code only from a reviewed repository revision, not from backup metadata. Restore only into empty intended volumes; isolate recovered Dockhand before starting so it cannot auto-deploy unexpectedly. Follow the registry plan and service-specific runbooks; for the existing services the operational order remains infrastructure preparation, Redis volume preparation, PostgreSQL-only startup and restore, full deployment, MinIO restore, verification, then backup schedule. The restored cron configuration must be reviewed before enabling jobs.
 
 On the current host, inspect the repository without printing credentials:
 

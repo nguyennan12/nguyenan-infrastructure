@@ -135,17 +135,17 @@ The repository includes `bootstrap.sh`, `setup-*.sh`, and `restore-*.sh`. Bootst
 
 ## GitOps workflow
 
-The private repository `nguyennan12/nguyenan-infrastructure` uses `main` for changes and `production` for deployments. `.github/workflows/infrastructure-ci.yml` checks Compose with non-live environment values, recursively validates Bash syntax and ShellCheck errors, scans secrets with Gitleaks, and promotes successful main pushes. Pull requests validate without promoting. This is not a runtime integration test. Branch protection is not configured by choice.
+The repository uses `main` for changes and `production` for deployments. `.github/workflows/infrastructure-ci.yml` checks Compose with non-live environment values, recursively validates Bash syntax and ShellCheck errors, scans secrets with Gitleaks, and promotes successful main pushes. Pull requests validate without promoting. This is not a runtime integration test; configure branch protection to suit your repository.
 
-Dockhand uses branch `production`, the four stack files and scheduled sync every five minutes. Keep existing stack names and secrets. A separate root systemd service/timer synchronizes the checkout `/opt/infra/repository` via a read-only GitHub deploy key, installs allowlisted backup and management scripts/modules, and records the last applied commit in `/opt/infra/state/last-sync-commit`. It coordinates with backup/provisioning locks; updates can be postponed. The sync executable `/opt/infra/bin/sync-infra.sh` and systemd units are not automatically replaced by this sync. Review and install changes to them separately; a failed install may leave some files updated.
+Dockhand uses branch `production`, the four stack files and scheduled sync every five minutes. Keep existing stack names and secrets. A separate root systemd service/timer runs the stable launcher at `/opt/infra/bin/sync-infra.sh`; it pins the production commit and executes the versioned worker from that commit. The worker installs allowlisted runtime files and advances `/opt/infra/state/last-sync-commit` after verification. The launcher and systemd units require explicit updates.
 
-The Phase 3 sync validates source metadata and registered files before copying, restricts destinations, and installs registry metadata last so a partial copy cannot advertise unavailable code. The already-installed older sync cannot install this new registry or update itself; adoption therefore requires a reviewed manual replacement of `sync-infra.sh`, followed by one monitored sync. This does not change Dockhand ownership. Any new enabled Compose stack must also be registered manually in Dockhand with the exact registry project name and environment.
+The worker validates metadata and source files before installation, stages rollback copies and installs registry metadata last. A failed or interrupted installation may require recovery; inspect `sync-status` and the migration guide. This does not change Dockhand ownership. Any new enabled Compose stack must also be registered manually in Dockhand with the exact registry project name and environment.
 
-### Safe script-layout transition
+### Existing-host launcher transition
 
-Before promoting the first commit that removes the old flat source files, copy the reviewed `scripts/deployment/sync-infra.sh` from that same commit to a temporary root-owned file on the host, run `bash -n` on it, then atomically install it as `/opt/infra/bin/sync-infra.sh` with mode 700. Stop and inspect if the repository checkout is dirty or the validation fails. Start `infra-sync.service` once manually and verify `last-sync-commit`, installed public commands, registry validation and backup logs before relying on the timer. The old synchronizer encounters the missing old-layout `scripts/backup-all.sh` before its first install and exits under `set -e`; it cannot safely adopt the new layout by itself. Do not change the systemd `ExecStart`, cron entries, Dockhand ownership or credentials during this transition.
+Install the stable launcher once using the reviewed procedure in [SYNC-LAUNCHER-MIGRATION.md](SYNC-LAUNCHER-MIGRATION.md). Preserve the existing revision marker and verify one monitored synchronization before relying on the timer.
 
-The source allowlist includes the new management scripts, but an already-installed sync script cannot add them to itself. Manually review and install the updated `sync-infra.sh` only if those scripts are required on production. Do not enable or schedule `update.sh` on the GitOps host.
+Do not enable or schedule the Standalone `update.sh` on a GitOps host.
 
 ```bash
 sudo systemctl list-timers infra-sync.timer

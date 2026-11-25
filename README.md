@@ -39,11 +39,14 @@ configs/
   traefik/dynamic/tls.yml
   systemd/infra-sync.service
   systemd/infra-sync.timer
+  systemd/infra-monitor.service
+  systemd/infra-monitor.timer
 scripts/
   bootstrap.sh
   core/{common,registry}.sh
   setup/setup-*.sh
-  deployment/{deploy,update,sync-infra}.sh
+  deployment/{deploy,update,sync-launcher,sync-infra}.sh
+  monitoring/{monitor,checks,notify,setup-monitoring}.sh
   projects/{orchestrator,create-project,add-service,remove-service,delete-project,list-projects,list-services}.sh
   backup/{backup-all,backup-infra,maintenance}.sh
   restore/{restore-all,restore-infra}.sh
@@ -68,10 +71,11 @@ README.md
 - [Security](docs/SECURITY.md): firewall, access and hardening.
 - [Create a project](docs/CREATE-PROJECT.md): provision application credentials and storage.
 - [Add a service](docs/ADD-SERVICE.md): extend stacks, project hooks, backup and restore safely.
+- [Monitoring](docs/MONITORING.md): optional host, service, backup and GitOps alerts.
 
 ## Backup
 
-Daily at 02:00 Asia/Ho_Chi_Minh; maintenance on Sunday at 05:00. Retention: 7 daily, 4 weekly, 3 monthly snapshots per backup group. Google Drive repository: `rclone:gdrive-backup:infra-backup-v2`. Backup and file restoration have been tested; full service recovery on a separate host remains to be tested. Scheduled execution must be verified from logs.
+The example schedule is daily at 02:00 Asia/Ho_Chi_Minh and maintenance on Sunday at 05:00. Retention is 7 daily, 4 weekly and 3 monthly snapshots per backup group. Configure your own Restic URL, such as `rclone:<remote>:<repository-folder>`. Full service recovery on a separate host has not been verified.
 
 For a new host, bootstrap can open Rclone's interactive Google Drive configuration, import an existing `rclone.conf`, or skip backup setup. Rclone handles optional custom OAuth client credentials and browser/headless authorization. Fresh setup can accept or securely generate a Restic password and initializes a repository only after explicit `INITIALIZE` confirmation. Restore preparation accepts existing credentials only, verifies access, lists snapshots and never enables cron.
 
@@ -134,19 +138,10 @@ Standalone and Dockhand must never control the same stacks. Automatic ownership 
 
 Push changes to `main`. CI validates Compose and Bash, runs secret scanning, then promotes successful main pushes to `production`. Dockhand tracks production for stack deployments; a separate systemd timer tracks production for installed scripts. Both poll at approximately five-minute intervals. Revert a specific bad commit on main rather than force-pushing production. See [Deployment](docs/DEPLOYMENT.md).
 
-The repository sync allowlist now includes `setup-secrets.sh`, `deploy.sh` and `update.sh`. The already-installed production copy of `sync-infra.sh` cannot update its own allowlist; review and install that script manually if these commands are ever needed on that host. This does not activate Standalone deployment.
+The stable launcher at `/opt/infra/bin/sync-infra.sh` fetches the validated production revision and executes its versioned worker. The launcher itself and systemd units require an explicit installation or update; see [the migration guide](docs/SYNC-LAUNCHER-MIGRATION.md). This does not activate Standalone deployment.
 
 The repository uses domain-based source directories, while installed public commands remain at their established paths such as `/opt/infra/scripts/create-project.sh`, `/opt/infra/scripts/deploy.sh` and `/opt/infra/backup/backup-all.sh`. Registry mappings install internal service files below `/opt/infra/scripts/services/` without changing cron or systemd command paths.
 
 Stack and project-service discovery is driven by the validated JSON registries in `registry/`. Metadata selects only allowlisted handlers and adapter hooks; it is never evaluated as shell code. Existing PostgreSQL, Redis and MinIO modules remain the implementation behind the standardized adapters. An existing host without an installed registry keeps the legacy wrappers and backup/restore order, so this change does not force a production migration.
 
-## Status — 2026-11-24
-
-- Six running containers; PostgreSQL/Redis/MinIO project isolation exercised in test projects.
-- GitOps label deployment and revert observed on Redis; MinIO fix commit preserved.
-- Modular create/add/remove exercised. A failed MinIO deletion was repaired and completed manually; automatic end-to-end deletion after the fix was intentionally not retested.
-- Restic integrity check and restoration of files from four backup groups succeeded. Full independent-host recovery and recovery time remain unverified.
-- Duplicate daily cron entry was observed; removal and absence of other schedules should be verified. No external application deployment is required or claimed.
-- Suggested first release: `v1.0.0-rc.1`; final release subject to recovery and deletion validation. Modular provisioning is the default implementation.
-
-Documentation reflects the observed setup and prior runbook, not a fresh audit of every source file or live configuration.
+Operational observations from a particular host are not portable guarantees. Verify deployment, backup schedules, monitoring and recovery in each environment; full independent-host disaster recovery remains unverified.
