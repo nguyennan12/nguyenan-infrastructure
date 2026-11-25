@@ -143,6 +143,21 @@ if [ -d /opt/infra/scripts/services ]; then
     chmod -R go-rwx "$STAGING/config/service-adapters"
 fi
 
+# Recovery references for the GitOps controller; transient locks and workers
+# are deliberately excluded from the encrypted infrastructure snapshot.
+if [ -f /opt/infra/bin/sync-infra.sh ]; then
+    install -d -m 700 "$STAGING/config/gitops"
+    install -m 700 /opt/infra/bin/sync-infra.sh "$STAGING/config/gitops/sync-launcher.sh"
+    for unit in infra-sync.service infra-sync.timer; do
+        if [ -f "/etc/systemd/system/$unit" ]; then
+            install -m 600 "/etc/systemd/system/$unit" "$STAGING/config/gitops/$unit"
+        fi
+    done
+    if [ -f /opt/infra/state/last-sync-commit ]; then
+        install -m 600 /opt/infra/state/last-sync-commit "$STAGING/config/gitops/last-sync-commit"
+    fi
+fi
+
 # Backup project credentials and policies
 if [ -d "$PROJECTS_DIR" ]; then
     echo "Backing up project configurations..."

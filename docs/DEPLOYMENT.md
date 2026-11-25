@@ -1,5 +1,7 @@
 # Deployment
 
+For Phase 3.1 GitOps synchronization and the one-time launcher transition, use [SYNC-LAUNCHER-MIGRATION.md](SYNC-LAUNCHER-MIGRATION.md). Earlier manual worker installation instructions below describe the pre-3.1 layout and must not be used for a 3.1 migration.
+
 The interactive bootstrap supports fresh Standalone or GitOps installation and isolated restore preparation. Review the actual Compose files and image versions before execution. For recovery of an existing installation, read DISASTER-RECOVERY.md first.
 
 ## Deployment modes

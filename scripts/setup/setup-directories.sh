@@ -29,6 +29,8 @@ for required_source in \
     scripts/setup/setup-secrets.sh \
     scripts/deployment/deploy.sh \
     scripts/deployment/update.sh \
+    scripts/deployment/sync-launcher.sh \
+    scripts/deployment/sync-infra.sh \
     scripts/projects/orchestrator.sh \
     scripts/projects/list-services.sh \
     scripts/projects/create-project.sh \

@@ -180,6 +180,16 @@ if [ "$INSTALL_TYPE" = "fresh" ]; then
         REPO_DIR="$REPO_DIR" bash "$(deployment_script deploy.sh)"
     else
         bash "$(setup_script setup-dockhand.sh)"
+        if [ ! -d "$REPO_DIR/.git" ]; then
+            echo "GitOps repository checkout is required before enabling synchronization: $REPO_DIR" >&2
+            exit 1
+        fi
+        install -d -m 700 "$INFRA_ROOT/bin" "$INFRA_ROOT/state"
+        install -m 700 "$REPO_DIR/scripts/deployment/sync-launcher.sh" "$INFRA_ROOT/bin/sync-infra.sh"
+        install -m 644 "$REPO_DIR/configs/systemd/infra-sync.service" /etc/systemd/system/infra-sync.service
+        install -m 644 "$REPO_DIR/configs/systemd/infra-sync.timer" /etc/systemd/system/infra-sync.timer
+        systemctl daemon-reload
+        systemctl enable --now infra-sync.timer
         echo "Register the four existing stack files in Dockhand using the documented project names."
         echo "Copy each required value from /opt/infra/secrets into the corresponding Dockhand stack environment."
     fi
