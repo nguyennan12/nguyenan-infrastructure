@@ -213,3 +213,5 @@ INSTALLING=false
 rm -rf -- "$TRANSACTION"
 status synchronized
 echo "Synchronized commit: $TARGET_COMMIT"
+
+echo "Versioned worker automatic update: PASS"
