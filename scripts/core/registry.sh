@@ -133,7 +133,7 @@ registry__visit_stack() {
     REGISTRY_STACK_VISIT[$id]=1
     while IFS= read -r dependency; do
         [ -n "$dependency" ] || continue
-        registry__visit_stack "$dependency"
+        registry__visit_stack "$dependency" || return 1
     done < <(registry_stack_get "$id" | jq -r '.dependencies[]?' | sort)
     REGISTRY_STACK_VISIT[$id]=2
     printf '%s\n' "$id"
@@ -143,7 +143,7 @@ registry_stack_order() {
     local id
     REGISTRY_STACK_VISIT=()
     while IFS= read -r id; do
-        registry__visit_stack "$id"
+        registry__visit_stack "$id" || return 1
     done < <(jq -r '.stacks[] | select(.enabled == true) | .id' "$STACK_REGISTRY" | sort)
 }
 
@@ -161,7 +161,7 @@ registry__visit_service() {
     REGISTRY_SERVICE_VISIT[$id]=1
     while IFS= read -r dependency; do
         [ -n "$dependency" ] || continue
-        registry__visit_service "$dependency"
+        registry__visit_service "$dependency" || return 1
     done < <(registry_service_get "$id" | jq -r '.dependencies[]?' | sort)
     REGISTRY_SERVICE_VISIT[$id]=2
     printf '%s\n' "$id"
@@ -171,7 +171,7 @@ registry_service_order() {
     local id
     REGISTRY_SERVICE_VISIT=()
     while IFS= read -r id; do
-        registry__visit_service "$id"
+        registry__visit_service "$id" || return 1
     done < <(registry_list_services)
 }
 
