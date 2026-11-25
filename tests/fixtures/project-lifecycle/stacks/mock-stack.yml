@@ -1,0 +1,7 @@
+services:
+  mock-service:
+    image: alpine:3.20
+    container_name: infra-mock-service
+    command: ["sh", "-c", "sleep infinity"]
+    environment:
+      MOCK_TOKEN: ${MOCK_TOKEN:?MOCK_TOKEN is required}

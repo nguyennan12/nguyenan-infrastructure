@@ -12,8 +12,12 @@ else
     REGISTRY_CORE="$SCRIPT_DIR/project-services.sh"
 fi
 REGISTRY_DIR_CANDIDATE="$(cd "$SCRIPTS_ROOT/.." && pwd)/registry"
-if [ -f "$REGISTRY_CORE" ] && [ -s "$REGISTRY_DIR_CANDIDATE/stacks.json" ] &&
-   [ -s "$REGISTRY_DIR_CANDIDATE/services.json" ]; then
+if [ -f "$REGISTRY_CORE" ]; then
+    if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then exec bash "$REGISTRY_CORE" create "$@"; fi
+    if [ ! -s "$REGISTRY_DIR_CANDIDATE/stacks.json" ] || [ ! -s "$REGISTRY_DIR_CANDIDATE/services.json" ]; then
+        echo "Installed service registry is missing; refusing legacy fallback." >&2
+        exit 1
+    fi
     exec bash "$REGISTRY_CORE" create "$@"
 fi
 

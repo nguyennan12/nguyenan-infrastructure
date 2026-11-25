@@ -12,15 +12,47 @@ fi
 source "$SCRIPTS_ROOT/core/common.sh"
 source "$SCRIPTS_ROOT/core/registry.sh"
 
+usage_for_command() {
+    case "${1:-}" in
+        create) echo "Usage: create-project.sh <project-name> [--services id1,id2|--postgres|--redis|--minio|--all]" ;;
+        add) echo "Usage: add-service.sh <project-name> [--services id1,id2|--postgres|--redis|--minio|--all]" ;;
+        remove) echo "Usage: remove-service.sh <project-name> [--services id1,id2|--postgres|--redis|--minio]" ;;
+        delete) echo "Usage: delete-project.sh <project-name>" ;;
+        list) echo "Usage: list-projects.sh" ;;
+        *) echo "Usage: project-services.sh {create|add|remove|delete|list} [arguments]" ;;
+    esac
+}
+
 COMMAND="${1:-}"
-[ -n "$COMMAND" ] || { echo "Missing project service command." >&2; exit 1; }
+if [ -z "$COMMAND" ]; then
+    echo "Missing project service command." >&2
+    usage_for_command >&2
+    exit 1
+fi
+if [ "$COMMAND" = "--help" ] || [ "$COMMAND" = "-h" ]; then
+    usage_for_command
+    exit 0
+fi
 shift
+
+case "$COMMAND" in
+    create|add|remove|delete|list) ;;
+    *) echo "Unknown project service command: $COMMAND" >&2; usage_for_command >&2; exit 1 ;;
+esac
+
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    usage_for_command "$COMMAND"
+    exit 0
+fi
 
 if [ "$EUID" -ne 0 ] && [ "${INFRA_TEST_MODE:-0}" != "1" ]; then
     echo "Please run with sudo."
     exit 1
 fi
-registry_validate
+if ! registry_validate; then
+    echo "Installed service registry is invalid; refusing project provisioning." >&2
+    exit 1
+fi
 
 declare -a REQUESTED_SERVICES=()
 declare -a ORDERED_SERVICES=()
@@ -34,6 +66,7 @@ add_requested_service() {
         REQUESTED_SERVICES+=("$service")
         REQUESTED_SET[$service]=1
     fi
+    return 0
 }
 
 add_csv_services() {
@@ -43,6 +76,7 @@ add_csv_services() {
     for service in "${csv_services[@]}"; do
         add_requested_service "$service"
     done
+    return 0
 }
 
 parse_service_arguments() {
@@ -51,13 +85,13 @@ parse_service_arguments() {
 
     if [ "$#" -eq 0 ] && [ "$allow_interactive" = "true" ]; then
         interactive_service_selection
-        return
+        return 0
     fi
 
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --services)
-                [ "$#" -ge 2 ] || { echo "--services requires a comma-separated value." >&2; exit 1; }
+                [ "$#" -ge 2 ] || { echo "--services requires a comma-separated value." >&2; usage_for_command "$COMMAND" >&2; return 1; }
                 add_csv_services "$2"
                 shift 2
                 ;;
@@ -70,9 +104,10 @@ parse_service_arguments() {
                 while IFS= read -r service; do add_requested_service "$service"; done < <(registry_enabled_project_services)
                 shift
                 ;;
-            *) echo "Unknown service argument: $1" >&2; exit 1 ;;
+            *) echo "Unknown service argument: $1" >&2; usage_for_command "$COMMAND" >&2; return 1 ;;
         esac
     done
+    return 0
 }
 
 interactive_service_selection() {
@@ -95,18 +130,20 @@ interactive_service_selection() {
         [ "$choice" -ge 1 ] && [ "$choice" -le "${#services[@]}" ] || { echo "Invalid service selection." >&2; exit 1; }
         add_requested_service "${services[$((choice - 1))]}"
     done
+    return 0
 }
 
 validate_and_order_services() {
     local service dependency
     local -a filtered=()
 
-    [ "${#REQUESTED_SERVICES[@]}" -gt 0 ] || { echo "Select at least one service." >&2; exit 1; }
+    [ "${#REQUESTED_SERVICES[@]}" -gt 0 ] || { echo "Select at least one service." >&2; return 1; }
+    ORDERED_SERVICES=()
 
     for service in "${REQUESTED_SERVICES[@]}"; do
-        registry_service_get "$service" >/dev/null 2>&1 || { echo "Unknown registered service: $service" >&2; exit 1; }
-        registry_service_has_capability "$service" project-provision || { echo "Service is not project-provisionable: $service" >&2; exit 1; }
-        registry_service_enabled "$service" || { echo "Service is registered but disabled: $service" >&2; exit 1; }
+        registry_service_get "$service" >/dev/null 2>&1 || { echo "Unknown registered service: $service" >&2; return 1; }
+        registry_service_has_capability "$service" project-provision || { echo "Service is not project-provisionable: $service" >&2; return 1; }
+        registry_service_enabled "$service" || { echo "Service is registered but disabled: $service" >&2; return 1; }
 
         if ! registry_service_available "$service"; then
             if $ALL_REQUESTED; then
@@ -115,12 +152,12 @@ validate_and_order_services() {
                 continue
             fi
             echo "Service is not available for provisioning: $service" >&2
-            exit 1
+            return 1
         fi
         filtered+=("$service")
     done
     REQUESTED_SERVICES=("${filtered[@]}")
-    [ "${#REQUESTED_SERVICES[@]}" -gt 0 ] || { echo "No enabled and available project services were found." >&2; exit 1; }
+    [ "${#REQUESTED_SERVICES[@]}" -gt 0 ] || { echo "No enabled and available project services were found." >&2; return 1; }
 
     for service in "${REQUESTED_SERVICES[@]}"; do
         while IFS= read -r dependency; do
@@ -128,14 +165,18 @@ validate_and_order_services() {
             if [ -z "${REQUESTED_SET[$dependency]:-}" ] &&
                { [ ! -f "${MANIFEST:-}" ] || ! has_service "$dependency" 2>/dev/null; }; then
                 echo "Service $service requires project service $dependency." >&2
-                exit 1
+                return 1
             fi
         done < <(registry_service_get "$service" | jq -r '.dependencies[]?')
     done
 
     while IFS= read -r service; do
-        [ -n "${REQUESTED_SET[$service]:-}" ] && ORDERED_SERVICES+=("$service")
+        if [ -n "${REQUESTED_SET[$service]:-}" ]; then
+            ORDERED_SERVICES+=("$service")
+        fi
     done < <(registry_service_order)
+    [ "${#ORDERED_SERVICES[@]}" -gt 0 ] || { echo "No requested services remained after dependency ordering." >&2; return 1; }
+    return 0
 }
 
 run_service_hook() {
@@ -143,17 +184,19 @@ run_service_hook() {
     local hook="$2"
     registry_run_service_hook "$service" validate_configuration
     registry_run_service_hook "$service" "$hook"
+    return 0
 }
 
 print_service_states() {
     jq '.services' "$MANIFEST"
+    return 0
 }
 
 create_project_registry() {
     local service
-    [ "$#" -ge 1 ] || { echo "Usage: create-project.sh <project-name> [--services list|legacy flags|--all]" >&2; exit 1; }
+    [ "$#" -ge 1 ] || { usage_for_command create >&2; return 1; }
     PROJECT="$1"; shift
-    validate_project "$PROJECT"
+    if ! validate_project "$PROJECT"; then usage_for_command create >&2; return 1; fi
     init_project_paths "$PROJECT"
     parse_service_arguments true "$@"
 
@@ -180,13 +223,15 @@ create_project_registry() {
     trap - EXIT
     echo "Project created successfully: $PROJECT"
     print_service_states
+    return 0
 }
 
 add_services_registry() {
     local service
-    [ "$#" -ge 2 ] || { echo "Usage: add-service.sh <project-name> [--services list|legacy flags|--all]" >&2; exit 1; }
+    [ "$#" -ge 2 ] || { usage_for_command add >&2; return 1; }
     PROJECT="$1"; shift
-    validate_project "$PROJECT"; init_project_paths "$PROJECT"; acquire_project_lock; require_managed_project
+    if ! validate_project "$PROJECT"; then usage_for_command add >&2; return 1; fi
+    init_project_paths "$PROJECT"; acquire_project_lock; require_managed_project
     parse_service_arguments false "$@"
 
     for service in "${REQUESTED_SERVICES[@]}"; do
@@ -194,7 +239,10 @@ add_services_registry() {
     done
     REQUESTED_SERVICES=()
     for service in "${!REQUESTED_SET[@]}"; do REQUESTED_SERVICES+=("$service"); done
-    [ "${#REQUESTED_SERVICES[@]}" -gt 0 ] || { echo "No new services to provision."; exit 0; }
+    if [ "${#REQUESTED_SERVICES[@]}" -eq 0 ]; then
+        echo "No new services to provision."
+        return 0
+    fi
     validate_and_order_services
 
     printf 'Services to add: %s\n' "${ORDERED_SERVICES[*]}"
@@ -207,6 +255,7 @@ add_services_registry() {
     trap - EXIT
     echo "Services added successfully."
     print_service_states
+    return 0
 }
 
 validate_remove_dependencies() {
@@ -220,13 +269,15 @@ validate_remove_dependencies() {
             fi
         done < <(jq -r --arg dependency "$service" '.services[] | select(.dependencies | index($dependency)) | .id' "$SERVICE_REGISTRY")
     done
+    return 0
 }
 
 remove_services_registry() {
     local service index
-    [ "$#" -ge 2 ] || { echo "Usage: remove-service.sh <project-name> [--services list|legacy flags]" >&2; exit 1; }
+    [ "$#" -ge 2 ] || { usage_for_command remove >&2; return 1; }
     PROJECT="$1"; shift
-    validate_project "$PROJECT"; init_project_paths "$PROJECT"; acquire_destructive_project_locks; require_managed_project
+    if ! validate_project "$PROJECT"; then usage_for_command remove >&2; return 1; fi
+    init_project_paths "$PROJECT"; acquire_destructive_project_locks; require_managed_project
     parse_service_arguments false "$@"
 
     for service in "${REQUESTED_SERVICES[@]}"; do
@@ -234,7 +285,10 @@ remove_services_registry() {
     done
     REQUESTED_SERVICES=()
     for service in "${!REQUESTED_SET[@]}"; do REQUESTED_SERVICES+=("$service"); done
-    [ "${#REQUESTED_SERVICES[@]}" -gt 0 ] || { echo "No matching services to remove."; exit 0; }
+    if [ "${#REQUESTED_SERVICES[@]}" -eq 0 ]; then
+        echo "No matching services to remove."
+        return 0
+    fi
     validate_and_order_services
     validate_remove_dependencies
 
@@ -252,13 +306,15 @@ remove_services_registry() {
     trap - EXIT
     echo "Services removed successfully."
     print_service_states
+    return 0
 }
 
 delete_project_registry() {
     local service index
-    [ "$#" -eq 1 ] || { echo "Usage: delete-project.sh <project-name>" >&2; exit 1; }
+    [ "$#" -eq 1 ] || { usage_for_command delete >&2; return 1; }
     PROJECT="$1"
-    validate_project "$PROJECT"; init_project_paths "$PROJECT"; acquire_destructive_project_locks; require_managed_project
+    if ! validate_project "$PROJECT"; then usage_for_command delete >&2; return 1; fi
+    init_project_paths "$PROJECT"; acquire_destructive_project_locks; require_managed_project
     mapfile -t REQUESTED_SERVICES < <(jq -r '.services | to_entries[] | select(.value == true) | .key' "$MANIFEST")
     for service in "${REQUESTED_SERVICES[@]}"; do
         registry_service_get "$service" >/dev/null 2>&1 || { echo "Enabled project service is no longer registered: $service" >&2; exit 1; }
@@ -280,10 +336,12 @@ delete_project_registry() {
     rm -rf -- "$PROJECT_DIR"
     trap - EXIT
     echo "Project deleted successfully: $PROJECT"
+    return 0
 }
 
 list_projects_registry() {
     local dir manifest project status services count=0
+    [ "$#" -eq 0 ] || { echo "Unexpected arguments for list-projects.sh." >&2; usage_for_command list >&2; return 1; }
     printf '%-24s %-18s %s\n' PROJECT STATUS SERVICES
     printf '%s\n' '-----------------------------------------------------------------------'
     if [ -d "$PROJECTS_DIR" ]; then
@@ -303,6 +361,7 @@ list_projects_registry() {
         done
     fi
     echo "Total managed projects: $count"
+    return 0
 }
 
 case "$COMMAND" in
@@ -311,5 +370,5 @@ case "$COMMAND" in
     remove) remove_services_registry "$@" ;;
     delete) delete_project_registry "$@" ;;
     list) list_projects_registry "$@" ;;
-    *) echo "Unknown project service command: $COMMAND" >&2; exit 1 ;;
+    *) echo "Unknown project service command: $COMMAND" >&2; usage_for_command >&2; exit 1 ;;
 esac

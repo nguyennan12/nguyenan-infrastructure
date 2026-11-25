@@ -126,9 +126,10 @@ require_root() {
 
 validate_project() {
     if [[ ! "$1" =~ ^[a-z][a-z0-9]{2,29}$ ]]; then
-        echo "Invalid project name."
-        exit 1
+        echo "Invalid project name: $1" >&2
+        return 1
     fi
+    return 0
 }
 
 generate_password() {
@@ -144,6 +145,7 @@ require_container() {
         echo "Container $container is not running."
         return 1
     fi
+    return 0
 }
 
 init_project_paths() {
@@ -161,6 +163,7 @@ init_project_paths() {
     MINIO_USER="${PROJECT}_user"
     MINIO_BUCKET="$PROJECT"
     MINIO_POLICY="${PROJECT}-policy"
+    return 0
 }
 
 init_manifest() {
@@ -186,6 +189,7 @@ init_manifest() {
     fi
 
     chmod 600 "$MANIFEST"
+    return 0
 }
 
 set_service_state() {
@@ -202,6 +206,7 @@ set_service_state() {
         "$MANIFEST" > "$temp"
 
     mv -f "$temp" "$MANIFEST"
+    return 0
 }
 
 set_project_status() {
@@ -215,6 +220,7 @@ set_project_status() {
         "$MANIFEST" > "$temp"
 
     mv -f "$temp" "$MANIFEST"
+    return 0
 }
 
 has_service() {
@@ -227,10 +233,13 @@ require_managed_project() {
     if [ ! -f "$MANIFEST" ]; then
         echo "Project manifest not found."
         echo "Legacy projects require migration first."
-        exit 1
+        return 1
     fi
 
-    test -f "$ENV_FILE"
+    if [ ! -f "$ENV_FILE" ]; then
+        echo "Project environment file not found: $ENV_FILE" >&2
+        return 1
+    fi
 
     if ! jq -e --arg name "$PROJECT" '
         .name == $name and
@@ -239,8 +248,9 @@ require_managed_project() {
         ([.services[] | type == "boolean"] | all)
     ' "$MANIFEST" >/dev/null; then
         echo "Invalid or incomplete project manifest."
-        exit 1
+        return 1
     fi
+    return 0
 }
 
 remove_env_vars() {
@@ -254,6 +264,7 @@ remove_env_vars() {
 
     chmod 600 "$temp"
     mv -f "$temp" "$ENV_FILE"
+    return 0
 }
 
 ensure_private_dirs() {
@@ -262,6 +273,7 @@ ensure_private_dirs() {
     else
         install -d -m 700 "$@"
     fi
+    return 0
 }
 
 acquire_project_lock() {
@@ -271,8 +283,9 @@ acquire_project_lock() {
 
     flock -n 9 || {
         echo "Another provisioning task is running."
-        exit 1
+        return 1
     }
+    return 0
 }
 
 acquire_destructive_project_locks() {
@@ -281,16 +294,17 @@ acquire_destructive_project_locks() {
     exec 8>"$INFRA_ROOT/backup/backup.lock"
     flock -n 8 || {
         echo "A backup, deployment or infrastructure sync is running." >&2
-        exit 1
+        return 1
     }
 
     exec 9>"$INFRA_ROOT/state/provisioning.lock"
     flock -n 9 || {
         echo "Another project operation or deployment is running." >&2
-        exit 1
+        return 1
     }
 
     export BACKUP_LOCK_HELD=1
+    return 0
 }
 
 acquire_restore_locks() {
@@ -299,18 +313,19 @@ acquire_restore_locks() {
     exec 8>"$INFRA_ROOT/backup/backup.lock"
     flock -n 8 || {
         echo "A backup, deployment or infrastructure sync is running." >&2
-        exit 1
+        return 1
     }
 
     exec 7>"$INFRA_ROOT/state/provisioning.lock"
     flock -n 7 || {
         echo "A project operation or deployment is running." >&2
-        exit 1
+        return 1
     }
 
     exec 6>"$INFRA_ROOT/state/restore.lock"
     flock -n 6 || {
         echo "Another restore or update is running." >&2
-        exit 1
+        return 1
     }
+    return 0
 }

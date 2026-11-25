@@ -173,6 +173,7 @@ registry_service_order() {
     while IFS= read -r id; do
         registry__visit_service "$id" || return 1
     done < <(registry_list_services)
+    return 0
 }
 
 registry_backup_services() {

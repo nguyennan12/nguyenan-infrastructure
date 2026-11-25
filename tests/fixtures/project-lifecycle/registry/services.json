@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "services": [
+    {
+      "id": "postgres",
+      "display_name": "Mock PostgreSQL",
+      "stack": "mock-stack",
+      "enabled": true,
+      "dependencies": [],
+      "capabilities": ["project-provision", "health"],
+      "module": "scripts/services/postgres/adapter.sh",
+      "project_env": [],
+      "managed_files": [
+        {"source": "scripts/services/postgres/adapter.sh", "destination": "scripts/services/postgres/adapter.sh"}
+      ]
+    },
+    {
+      "id": "redis",
+      "display_name": "Mock Redis",
+      "stack": "mock-stack",
+      "enabled": true,
+      "dependencies": [],
+      "capabilities": ["project-provision", "health"],
+      "module": "scripts/services/redis/adapter.sh",
+      "project_env": [],
+      "managed_files": [
+        {"source": "scripts/services/redis/adapter.sh", "destination": "scripts/services/redis/adapter.sh"}
+      ]
+    },
+    {
+      "id": "minio",
+      "display_name": "Mock MinIO",
+      "stack": "mock-stack",
+      "enabled": true,
+      "dependencies": [],
+      "capabilities": ["project-provision", "health"],
+      "module": "scripts/services/minio/adapter.sh",
+      "project_env": [],
+      "managed_files": [
+        {"source": "scripts/services/minio/adapter.sh", "destination": "scripts/services/minio/adapter.sh"}
+      ]
+    },
+    {
+      "id": "mock-service",
+      "display_name": "Generic Mock Service",
+      "stack": "mock-stack",
+      "enabled": true,
+      "dependencies": [],
+      "capabilities": ["project-provision", "health"],
+      "module": "scripts/services/mock-service/adapter.sh",
+      "project_env": [],
+      "managed_files": [
+        {"source": "scripts/services/mock-service/adapter.sh", "destination": "scripts/services/mock-service/adapter.sh"}
+      ]
+    },
+    {
+      "id": "dependent-service",
+      "display_name": "Dependent Mock Service",
+      "stack": "mock-stack",
+      "enabled": true,
+      "dependencies": ["postgres"],
+      "capabilities": ["project-provision", "health"],
+      "module": "scripts/services/dependent-service/adapter.sh",
+      "project_env": [],
+      "managed_files": [
+        {"source": "scripts/services/dependent-service/adapter.sh", "destination": "scripts/services/dependent-service/adapter.sh"}
+      ]
+    }
+  ]
+}

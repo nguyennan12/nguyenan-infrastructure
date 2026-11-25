@@ -109,6 +109,123 @@ REGISTRY_TRUSTED_ROOT="$FIXTURE_ROOT" \
 jq -e '.status == "provisioned" and .services["mock-service"] == true' \
     "$PROJECT_RUNTIME/projects/demo/project.json" >/dev/null || fail "dynamic project service selection failed"
 
+echo "Testing registry-driven project lifecycle commands..."
+LIFECYCLE_FIXTURE="$REPO_DIR/tests/fixtures/project-lifecycle"
+LIFECYCLE_RUNTIME="$TEST_ROOT/project-lifecycle-runtime"
+LIFECYCLE_LOG="$LIFECYCLE_RUNTIME/lifecycle.log"
+mkdir -p "$LIFECYCLE_RUNTIME/backup"
+printf '#!/usr/bin/env bash\nprintf "backup\\n" >> "$MOCK_HOOK_LOG"\n' \
+    > "$LIFECYCLE_RUNTIME/backup/backup-all.sh"
+chmod 700 "$LIFECYCLE_RUNTIME/backup/backup-all.sh"
+
+run_lifecycle() {
+    local input="$1"
+    shift
+    printf '%b' "$input" | INFRA_ROOT="$LIFECYCLE_RUNTIME" INFRA_TEST_MODE=1 \
+        MOCK_HOOK_LOG="$LIFECYCLE_LOG" REGISTRY_ROOT="$LIFECYCLE_FIXTURE/registry" \
+        REGISTRY_TRUSTED_ROOT="$LIFECYCLE_FIXTURE" \
+        bash "$REPO_DIR/scripts/projects/orchestrator.sh" "$@"
+}
+
+run_lifecycle 'CREATE registrytest\n' create registrytest --services postgres,redis >/dev/null
+jq -e '.services.postgres == true and .services.redis == true and .services.minio == false' \
+    "$LIFECYCLE_RUNTIME/projects/registrytest/project.json" >/dev/null || fail "subset create failed"
+run_lifecycle 'ADD registrytest\n' add registrytest --services minio >/dev/null
+jq -e '.services.minio == true' "$LIFECYCLE_RUNTIME/projects/registrytest/project.json" >/dev/null ||
+    fail "adding only MinIO failed"
+
+run_lifecycle 'CREATE addredis\n' create addredis --services mock-service >/dev/null
+run_lifecycle 'ADD addredis\n' add addredis --redis >/dev/null
+jq -e '.services.redis == true' "$LIFECYCLE_RUNTIME/projects/addredis/project.json" >/dev/null ||
+    fail "adding only Redis failed"
+
+run_lifecycle 'CREATE addpostgres\n' create addpostgres --services mock-service >/dev/null
+run_lifecycle 'ADD addpostgres\n' add addpostgres --postgres >/dev/null
+jq -e '.services.postgres == true' "$LIFECYCLE_RUNTIME/projects/addpostgres/project.json" >/dev/null ||
+    fail "adding only PostgreSQL failed"
+
+run_lifecycle 'CREATE addmultiple\n' create addmultiple --services mock-service >/dev/null
+run_lifecycle 'ADD addmultiple\n' add addmultiple --services postgres,redis >/dev/null
+jq -e '.services.postgres == true and .services.redis == true' \
+    "$LIFECYCLE_RUNTIME/projects/addmultiple/project.json" >/dev/null || fail "adding multiple services failed"
+
+hook_count_before="$(wc -l < "$LIFECYCLE_LOG")"
+output="$(run_lifecycle '' add addmultiple --redis)"
+assert_contains "$output" "No new services to provision."
+[ "$(wc -l < "$LIFECYCLE_LOG")" -eq "$hook_count_before" ] || fail "existing service was provisioned again"
+
+if run_lifecycle '' create dependencybad --services dependent-service >"$TEST_ROOT/dependency.out" 2>&1; then
+    fail "project service dependency was not enforced"
+fi
+assert_contains "$(cat "$TEST_ROOT/dependency.out")" "requires project service postgres"
+run_lifecycle 'CREATE dependencyok\n' create dependencyok --services postgres,dependent-service >/dev/null
+if run_lifecycle '' remove dependencyok --postgres >"$TEST_ROOT/dependency-remove.out" 2>&1; then
+    fail "dependent project service allowed dependency removal"
+fi
+assert_contains "$(cat "$TEST_ROOT/dependency-remove.out")" "dependent service dependent-service"
+
+printf '' > "$LIFECYCLE_LOG"
+run_lifecycle 'REMOVE registrytest\n' remove registrytest --minio >/dev/null
+jq -e '.services.minio == false' "$LIFECYCLE_RUNTIME/projects/registrytest/project.json" >/dev/null ||
+    fail "single service removal failed"
+[ "$(sed -n '1p' "$LIFECYCLE_LOG")" = backup ] || fail "backup did not run before single-service removal"
+
+printf '' > "$LIFECYCLE_LOG"
+run_lifecycle 'REMOVE registrytest\n' remove registrytest --services postgres,redis >/dev/null
+jq -e '.services.postgres == false and .services.redis == false' \
+    "$LIFECYCLE_RUNTIME/projects/registrytest/project.json" >/dev/null || fail "multiple service removal failed"
+[ "$(sed -n '1p' "$LIFECYCLE_LOG")" = backup ] || fail "backup did not run before multi-service removal"
+
+run_lifecycle 'CREATE deletetest\n' create deletetest --services postgres,mock-service >/dev/null
+printf '' > "$LIFECYCLE_LOG"
+run_lifecycle 'DELETE deletetest\n' delete deletetest >/dev/null
+[ ! -d "$LIFECYCLE_RUNTIME/projects/deletetest" ] || fail "project directory remained after delete"
+[ "$(sed -n '1p' "$LIFECYCLE_LOG")" = backup ] || fail "backup did not run before project deletion"
+
+run_lifecycle 'CREATE locktest\n' create locktest --services mock-service >/dev/null
+(
+    exec 9>"$LIFECYCLE_RUNTIME/state/provisioning.lock"
+    flock -n 9
+    touch "$LIFECYCLE_RUNTIME/state/lock-ready"
+    sleep 2
+) &
+PROJECT_LOCK_HOLDER=$!
+while [ ! -f "$LIFECYCLE_RUNTIME/state/lock-ready" ]; do sleep 0.05; done
+if run_lifecycle '' add locktest --redis >"$TEST_ROOT/project-lock.out" 2>&1; then
+    fail "contended project lock was accepted"
+fi
+wait "$PROJECT_LOCK_HOLDER"
+assert_contains "$(cat "$TEST_ROOT/project-lock.out")" "Another provisioning task"
+
+output="$(REGISTRY_ROOT="$TEST_ROOT/missing-registry" REGISTRY_TRUSTED_ROOT="$TEST_ROOT" \
+    INFRA_TEST_MODE=1 bash "$REPO_DIR/scripts/projects/orchestrator.sh" create --help)"
+assert_contains "$output" "Usage: create-project.sh"
+for help_script in create-project add-service remove-service delete-project list-projects; do
+    output="$(bash "$REPO_DIR/scripts/projects/$help_script.sh" --help)"
+    assert_contains "$output" "Usage:"
+done
+if run_lifecycle '' create INVALID --redis >"$TEST_ROOT/invalid-project.out" 2>&1; then
+    fail "invalid project name was accepted"
+fi
+assert_contains "$(cat "$TEST_ROOT/invalid-project.out")" "Invalid project name"
+assert_contains "$(cat "$TEST_ROOT/invalid-project.out")" "Usage: create-project.sh"
+if run_lifecycle '' add addredis --unknown >"$TEST_ROOT/invalid-argument.out" 2>&1; then
+    fail "invalid service argument was accepted"
+fi
+assert_contains "$(cat "$TEST_ROOT/invalid-argument.out")" "Usage: add-service.sh"
+run_lifecycle 'CREATE genericmock\n' create genericmock --services mock-service >/dev/null
+grep -Fq 'provision:mock-service' "$LIFECYCLE_LOG" || fail "generic mock service did not use adapter hook"
+
+MISSING_REGISTRY_RUNTIME="$TEST_ROOT/missing-registry-runtime"
+mkdir -p "$MISSING_REGISTRY_RUNTIME/scripts"
+cp "$REPO_DIR/scripts/projects/add-service.sh" "$MISSING_REGISTRY_RUNTIME/scripts/add-service.sh"
+printf '#!/usr/bin/env bash\nexit 99\n' > "$MISSING_REGISTRY_RUNTIME/scripts/project-services.sh"
+if bash "$MISSING_REGISTRY_RUNTIME/scripts/add-service.sh" example --redis \
+    >"$TEST_ROOT/missing-registry.out" 2>&1; then
+    fail "installed project CLI silently fell back without registry metadata"
+fi
+assert_contains "$(cat "$TEST_ROOT/missing-registry.out")" "refusing legacy fallback"
+
 make_invalid_registry() {
     local name="$1"
     local jq_filter="$2"

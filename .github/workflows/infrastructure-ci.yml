@@ -49,7 +49,7 @@ jobs:
             docker compose -f "$file" config --quiet
           done
 
-          for file in tests/fixtures/extensibility/stacks/*.yml; do
+          for file in tests/fixtures/*/stacks/*.yml; do
             echo "Validating $file"
             docker compose -f "$file" config --quiet
           done
