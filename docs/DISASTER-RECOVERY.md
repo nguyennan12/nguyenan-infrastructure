@@ -1,5 +1,7 @@
 # Disaster recovery
 
+[Backup and Restore](BACKUP-RESTORE.md) · [Configuration](CONFIGURATION.md) · [Troubleshooting](TROUBLESHOOTING.md)
+
 ## Recovery prerequisites (store outside VPS)
 
 Google account access; original Google OAuth client ID and secret; protected Rclone configuration or ability to reauthorize the same OAuth application; Restic password; private Git repository access; DNS and cloud account access. With `drive.file`, a different OAuth application may not see the original backup objects. Do not rely on a credential that exists only inside the encrypted backup.
@@ -19,9 +21,8 @@ restic -o rclone.timeout=5m snapshots
 restic -o rclone.timeout=5m check --read-data
 umask 077
 mkdir -p ./recovery
-for tag in postgresql redis minio infrastructure; do
-  restic -o rclone.timeout=5m restore latest --tag "$tag" --target "./recovery/$tag" || exit 1
-done
+SNAPSHOT_ID='<reviewed-snapshot-id>'
+restic -o rclone.timeout=5m restore "$SNAPSHOT_ID" --target ./recovery/selected
 ```
 
 Use explicit snapshot IDs instead of latest when recovering to a chosen time. Restored files are plaintext and contain secrets; restrict access and remove test copies after validation.
@@ -99,4 +100,4 @@ sudo bash -c 'set -a; . /opt/infra/backup/.env; set +a; restic snapshots'
 sudo tail -n 60 /opt/infra/backup/backup.log
 ```
 
-The Redis cleanup error was fixed and a successful snapshot `42b795b9` was reported. A saved snapshot alone is not proof of a successful entire backup run; check the aggregate exit status and all four groups. Full service recovery remains untested. Target daily RPO is approximately 24 hours only when every scheduled run succeeds; RTO unknown. Keep access credentials outside the VPS and never overwrite the original backup repository during a drill.
+A saved snapshot alone is not proof of a successful entire backup run; check the aggregate exit status and all required groups. Full independent-host service recovery remains untested (Phase 4.5 deferred). At a daily cadence, potential data loss can exceed 24 hours if a run fails; RTO is unmeasured. Keep access credentials outside the VPS and never overwrite the original backup repository during a drill.

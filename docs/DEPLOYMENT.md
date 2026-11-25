@@ -1,6 +1,8 @@
 # Deployment
 
-For Phase 3.1 GitOps synchronization and the one-time launcher transition, use [SYNC-LAUNCHER-MIGRATION.md](SYNC-LAUNCHER-MIGRATION.md). Earlier manual worker installation instructions below describe the pre-3.1 layout and must not be used for a 3.1 migration.
+[Quick Start](QUICKSTART.md) · [Configuration](CONFIGURATION.md) · [GitOps](GITOPS.md) · [Troubleshooting](TROUBLESHOOTING.md)
+
+For an existing GitOps host that predates the stable launcher, use [SYNC-LAUNCHER-MIGRATION.md](SYNC-LAUNCHER-MIGRATION.md). New-host onboarding starts at [Quick Start](QUICKSTART.md).
 
 The interactive bootstrap supports fresh Standalone or GitOps installation and isolated restore preparation. Review the actual Compose files and image versions before execution. For recovery of an existing installation, read DISASTER-RECOVERY.md first.
 
@@ -13,8 +15,8 @@ Standalone uses `deploy.sh` with explicit Compose project names. GitOps uses Doc
 ## Prerequisites
 
 - Ubuntu 24.04 VPS, SSH key access, Docker Engine and Compose plugin.
-- DNS control for your base domain (e.g., `example.com`), Azure NSG access, private Git repository access.
-- A password manager, Google Drive account and dedicated Google OAuth desktop client for backup.
+- DNS control for your base domain (e.g., `example.com`), cloud firewall access and a trusted repository clone.
+- For optional backup: a password manager, Google Drive account and access to the original OAuth application or a protected Rclone configuration.
 
 ## Interactive bootstrap
 
@@ -26,9 +28,9 @@ sudo bash ./scripts/bootstrap.sh
 
 Use `./scripts/bootstrap.sh --plan` to exercise the prompts and print the plan without changing the machine. Restore preparation installs only base prerequisites and configuration; it does not generate service credentials, create stateful volumes, install/start Dockhand or deploy services.
 
-For a fresh Standalone installation the installer runs the existing setup modules, creates explicit deployment configuration, initializes portable secrets, and calls `deploy.sh`. For a new GitOps installation it installs Dockhand and prints the remaining registration steps. Cockpit is optional in both cases.
+For a fresh Standalone installation the installer runs the existing setup modules, creates explicit deployment configuration, initializes portable secrets, and calls `deploy.sh`. For a new GitOps installation it installs Dockhand, the stable sync launcher and systemd timer, then prints the remaining manual stack-registration steps. Cockpit is optional in both cases.
 
-When backup is selected, the installer offers interactive Google Drive setup through Rclone, import of an existing `rclone.conf`, or deferral. Rclone presents optional custom OAuth Client ID/Secret fields and browser/headless authorization. Fresh setup asks for the remote, repository folder or full Restic URL, source host and Restic password. A generated password is never printed automatically; copy it from a private terminal into an off-host password manager before relying on the backup.
+When backup is selected, the installer offers interactive Google Drive setup through Rclone, import of an existing `rclone.conf`, or deferral. Rclone presents optional custom OAuth Client ID/Secret fields and browser/headless authorization. Fresh setup asks for the remote, repository folder or full Restic URL and Restic password; it records `hostname -s` as the snapshot source host. Restore setup asks for the original source host. A generated password is never printed automatically; copy it from a private terminal into an off-host password manager before relying on the backup.
 
 Restic repository initialization requires the exact confirmation `INITIALIZE` and is offered only in fresh mode after access verification fails. Restore preparation requires existing credentials, verifies the repository, lists snapshots and never initializes a repository or enables cron.
 
@@ -39,7 +41,7 @@ For deferred fresh setup, run `setup-backup.sh --fresh`, verify the reported sna
 ## Manual bootstrap reference
 
 1. Install Docker using the official Ubuntu instructions and install `restic`, `rclone`, `cron` via apt. Configure swap if necessary, and verify available RAM/disk.
-2. Clone the private repository using authorized credentials. Create a local `.env` from `.env.example`, restrict permissions and populate real secrets outside Git.
+2. Clone the trusted repository using authorized credentials. If manually using Docker Compose rather than bootstrap, create a private local environment file from `.env.example` and provide the required values separately; that example contains only a domain and is not a complete secret configuration.
    Create and configure the infrastructure domain file:
    ```bash
    sudo cp infrastructure.env.example /opt/infra/infrastructure.env
@@ -58,7 +60,7 @@ For deferred fresh setup, run `setup-backup.sh --fresh`, verify the reported sna
    - `postgres.<INFRA_DOMAIN>` -> VPS IP
    - `redis.<INFRA_DOMAIN>` -> VPS IP
    - `minio.<INFRA_DOMAIN>` -> VPS IP
-   Configure NSG as in SECURITY.md. For migration, defer production DNS cutover until validation; ACME HTTP challenge requires reachable port 80 and matching DNS.
+   Configure firewall access as in [Security](SECURITY.md). For migration, defer production DNS cutover until validation; ACME HTTP challenge requires reachable port 80 and matching DNS.
 5. Deploy gateway, then database, cache and storage. Keep Compose project names `infra-gateway`, `infra-database`, `infra-cache`, `infra-storage` unchanged to preserve named-volume mapping. Inspect `docker compose config` locally (it can reveal secrets; do not share output). In Standalone mode, `deploy.sh` performs this ordering and fresh authentication initialization.
 
 ## Portable secrets
@@ -155,7 +157,7 @@ sudo journalctl -u infra-sync.service -n 30 --no-pager
 
 ## Rollback
 
-Inspect the offending commit; revert that commit on main, not the whole production branch. Resolve conflicts and review the resulting diff before push. For the completed Redis label test the revert was `a525e87`, preserving MinIO fix `3447851`.
+Inspect the offending commit and review a targeted revert on `main`; CI promotes a successful push to `production`. Resolve conflicts and review the resulting diff before push. A code revert cannot reverse data migrations or restore deleted resources.
 
 ```bash
 git log -5 --oneline
@@ -163,7 +165,7 @@ git fetch origin
 git log -3 --oneline origin/production
 ```
 
-After a new revert is promoted, check Dockhand sync and container health; separately check installed script sync if affected. Redis test label `infra.rollback-test` appeared and later disappeared after revert. Git rollback does not restore deleted data, previous secret values or incompatible on-disk schemas.
+After a new revert is promoted, check Dockhand sync and container health; separately check installed script sync if affected. Git rollback does not restore deleted data, previous secret values or incompatible on-disk schemas.
 
 ## Domain change procedure
 

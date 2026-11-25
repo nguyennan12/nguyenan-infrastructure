@@ -1,111 +1,103 @@
 # Architecture
 
-## Overview
+[README](../README.md) · [Configuration](CONFIGURATION.md) · [GitOps](GITOPS.md) · [Project Management](PROJECT-MANAGEMENT.md)
+
+## Layers and trust boundaries
+
+```mermaid
+flowchart TB
+  Client[Authorized application clients] --> Firewall[Cloud firewall / host ingress]
+  Firewall --> Traefik[Traefik: public 80, 443, 6380, 6433]
+  Traefik --> PgBouncer[PgBouncer]
+  PgBouncer --> Postgres[PostgreSQL data volume]
+  Traefik --> Redis[Redis ACL and data volume]
+  Traefik --> MinIO[MinIO bucket and data volume]
+  Host[Root-only host automation] --> Registry[Validated stack and service registries]
+  Registry --> Adapters[Project service adapters]
+  Adapters --> Postgres & Redis & MinIO
+  Host --> Backup[Restic / Rclone encrypted backup]
+  Backup --> Drive[Google Drive]
+  Host --> Monitor[Optional monitoring timer]
+  Monitor --> Discord[Discord webhook]
+```
+
+Applications are external to this repository. The `proxy` Docker network is external and joins Traefik to ingress-facing services; the database stack's default network joins PgBouncer to PostgreSQL. PostgreSQL is not directly on `proxy`. TLS ends at Traefik, so backend hops are not automatically encrypted. Root-only host scripts and protected secret files form a separate trust boundary from public ingress. Docker socket access gives Dockhand and host operators substantial control; limit who can administer the host and Git repository.
+
+## Routing and service connectivity
+
+```mermaid
+flowchart LR
+  HTTPS[Client HTTPS :443] --> T[Traefik]
+  PGTLS[Client PostgreSQL TLS :6433] --> T
+  RTLS[Client Redis TLS :6380] --> T
+  T -->|HTTP :9000 via proxy| M[MinIO]
+  T -->|TCP :6432 via proxy| B[PgBouncer]
+  B -->|TCP :5432 on database default network| P[PostgreSQL]
+  T -->|TCP :6379 via proxy| R[Redis]
+```
+
+Traefik's PostgreSQL router uses a protocol-specific TLS option (`postgres@file`, ALPN `postgresql`). Clients should verify the certificate and hostname. MinIO uses `minio.${INFRA_DOMAIN}`; Redis and PostgreSQL use their corresponding subdomains. The root domain is not an application HTTPS endpoint by default. Direct host mappings for PostgreSQL 5432, PgBouncer 6432, Redis 6379, MinIO 9000/9001 and the Traefik dashboard 8080 bind to `127.0.0.1`; Dockhand binds `127.0.0.1:3000`. Cockpit, when installed, uses 9090 and must be restricted by firewall policy. Do not treat a loopback port as public ingress.
+
+## Deployment ownership and GitOps
+
+```mermaid
+flowchart LR
+  Dev[Developer] --> Main[main]
+  Main --> CI[GitHub Actions validation]
+  CI --> Production[production]
+  Production --> Dockhand[Dockhand polls Compose]
+  Production --> Launcher[infra-sync.timer → stable launcher]
+  Launcher --> Worker[Pinned worker from target commit]
+  Worker --> Installed[Runtime scripts / registry]
+  Dockhand --> Containers[Compose projects and persistent volumes]
+```
+
+Standalone mode uses `deploy.sh` for Compose ownership and optional manual `update.sh`; GitOps mode uses Dockhand for Compose and the systemd launcher/worker for installed scripts. Both modes share registry and adapters but must not control the same stacks at once. Docker stack polling and script synchronization are independent, not one atomic deployment. The installed revision is recorded in `/opt/infra/state/last-sync-commit`, not inferred from repository `HEAD`. See [GitOps](GITOPS.md).
+
+## Registries and project lifecycle
 
 ```mermaid
 flowchart TD
-  BE[Application backend on an authorized host]
-  BE --> NSG[Azure NSG]
-  NSG --> T[Traefik TLS gateway]
-  T --> P[PgBouncer :6432]
-  P --> PG[PostgreSQL :5432]
-  T --> R[Redis :6379]
-  T --> M[MinIO :9000]
-  PG --> B[Sequential backup scripts]
-  R --> B
-  M --> B
-  B --> G[Restic + Rclone / Google Drive]
-  A[Administrator via SSH tunnel] --> PG
-  A --> R
-  A --> M
+  Stacks[registry/stacks.json: Compose projects] --> Validation[Registry validation]
+  Services[registry/services.json: capabilities and mappings] --> Validation
+  Validation --> CLI[Create / add / remove / delete CLI]
+  CLI --> Lock[Provisioning lock; backup lock for destructive actions]
+  Lock --> Hooks[Allowlisted adapter hooks]
+  Hooks --> Manifest[project.json and protected .env]
+  Hooks --> Resources[Database/role, ACL user, bucket/IAM]
 ```
 
-Application hosting is outside this infrastructure scope; no Render or Vercel deployment is claimed.
+The stack registry defines `infra-gateway`, `infra-database`, `infra-cache` and `infra-storage` with dependencies, containers, environment names and readiness handlers. The service registry maps PostgreSQL, Redis and MinIO capabilities to adapters, backup/restore hooks and managed runtime files. Registry paths, dependencies, identifiers, handlers and destinations are validated; metadata is not executed as shell. A registered service can be enabled as infrastructure without being provisioned for every project. PostgreSQL uses per-project database/role and CONNECT restrictions; Redis uses ACL users and key prefixes but shared memory/eviction; MinIO uses per-project private bucket and scoped IAM policy. These are logical access boundaries, not hardware isolation.
 
-## Host and services
-
-Azure Ubuntu 24.04, Standard B2ats v2, 2 vCPU, 1 GiB RAM, 2 GiB swap. Public DNS under configured `INFRA_DOMAIN` (e.g. `example.com`). Subdomains: `postgres.${INFRA_DOMAIN}`, `redis.${INFRA_DOMAIN}`, `minio.${INFRA_DOMAIN}`. MongoDB is not running. Avoid adding heavyweight monitoring services to this host without load testing.
-
-### Domain externalization
-
-All infrastructure endpoint hostnames are dynamically derived from a single configuration variable: `INFRA_DOMAIN` (e.g., `example.com`):
-
-- PostgreSQL / PgBouncer: `postgres.${INFRA_DOMAIN}:6433`
-- Redis: `redis.${INFRA_DOMAIN}:6380`
-- MinIO: `https://minio.${INFRA_DOMAIN}`
-
-This configuration is decoupled:
-- **Dockhand Stacks**: Receives `INFRA_DOMAIN` as an environment variable to interpolate Traefik router rules in `stacks/database.yml`, `stacks/cache.yml`, and `stacks/storage.yml`.
-- **VPS Provisioning Scripts**: Reads `/opt/infra/infrastructure.env` safely via `scripts/core/common.sh` (`load_infra_config`), ensuring new projects automatically receive connection strings for the current host domain without modifying source code.
-
-| Stack | Service | Persistent storage |
-|---|---|---|
-| infra-gateway | Traefik | ACME certificate volume |
-| infra-database | PostgreSQL 17, PgBouncer | PostgreSQL data volume |
-| infra-cache | Redis 8 | Redis data volume (AOF, RDB, ACL) |
-| infra-storage | MinIO | Object storage volume |
-| standalone | Dockhand | dockhand_data |
-
-## Networking
-
-External Docker network `proxy` connects ingress-facing services to Traefik. PostgreSQL communicates with PgBouncer over the database stack network. Traefik terminates TLS for PostgreSQL and Redis TCP routers and MinIO HTTPS; PostgreSQL TLS uses the `postgres@file` TLS option with ALPN `postgresql`. Internal traffic after TLS termination is not necessarily encrypted.
-
-## Isolation
-
-PostgreSQL: database and login role per project, explicit CONNECT restrictions; PgBouncer dynamic auth uses a restricted authentication role and SECURITY DEFINER function in `postgres`. Redis: ACL user per project, command allowlist and key-prefix restriction; shared RAM and eviction policy are not per-project quotas. MinIO: private bucket and scoped IAM policy per project. None of these constitute hard resource isolation between tenants.
-
-## Administrative forwarding
-
-| Local port | VPS loopback port | Service |
-|---|---|---|
-| 15432 | 5432 | PostgreSQL |
-| 16379 | 6379 | Redis |
-| 13000 | 3000 | Dockhand |
-| 9090 | 9090 | Cockpit |
-| 8080 | 8080 | Traefik dashboard |
-| 9000 | 9000 | MinIO API |
-| 9001 | 9001 | MinIO Console |
-
-Use localhost binding for tunnels. Keep administrative access separate from public application endpoints.
-
-## Deployment control plane
+## Backup and recovery
 
 ```mermaid
-flowchart TD
-  C[Shared Compose stacks and scripts]
-  C --> G[GitOps mode]
-  C --> S[Standalone mode]
-  G --> D[Dockhand owns Compose stacks]
-  G --> Y[systemd sync owns installed scripts]
-  S --> CLI[deploy.sh owns Compose stacks]
-  S --> U[manual update.sh]
-  D --> T[infra projects and existing volumes]
-  CLI --> T
+flowchart LR
+  P[PostgreSQL dump] --> Aggregate[backup-all.sh under backup lock]
+  R[Redis RDB + ACL] --> Aggregate
+  M[MinIO objects + IAM metadata] --> Aggregate
+  I[Infrastructure configuration] --> Aggregate
+  Aggregate --> Restic[Encrypted Restic snapshots]
+  Restic --> Rclone[Rclone / Google Drive]
+  Rclone --> Select[Select compatible snapshot IDs]
+  Select --> Isolated[Isolated recovery host and ordered restore]
 ```
 
-`/opt/infra/deployment.env` explicitly selects ownership for new installations. Its absence on an existing installation does not imply Standalone mode. Standalone records ownership in `/opt/infra/state/deployment-owner` and refuses to operate when Dockhand is present. No automatic ownership conversion exists.
+Backup groups are sequential. `backup-status` records a complete aggregate success only when all required groups succeed. Restore requires the original repository credentials and a reviewed order; a file-level restore is not proof of complete service recovery. See [backup and restore](BACKUP-RESTORE.md) and [disaster recovery](DISASTER-RECOVERY.md).
 
-Portable secrets are split by stack under `/opt/infra/secrets`; Docker Compose reads them through explicit `--env-file` arguments. GitOps users must copy the required values to Dockhand's stack environment because Dockhand does not automatically read host files. Existing production secrets remain in Dockhand.
+## Monitoring and alerts
 
-Dockhand and script sync remain independent. Script sync uses a read-only deploy key and installs allowlisted files, not arbitrary configuration or secrets; it does not update itself automatically. Provisioning is modular; each project has a protected `.env` and `project.json` service flags/status in `/opt/infra/projects/<name>/`.
+```mermaid
+flowchart LR
+  Timer[infra-monitor.timer every 5 min] --> Checks[Host, registry services, backup/sync status]
+  Checks --> TLS[Daily TLS probes]
+  Checks --> State[Private incident state and dedup]
+  TLS --> State
+  State -->|new incident / recovery| Webhook[Discord embed via protected webhook]
+```
 
-## Service registry and adapters
+The monitor runs as a short root oneshot, never as a continuously running container. It does not restart services. A host-wide outage or network failure also prevents its Discord notification. See [monitoring](MONITORING.md).
 
-`registry/stacks.json` describes Compose stacks, explicit project names, dependencies, required environment keys, readiness checks and secret generators. `registry/services.json` maps project capabilities to stacks, standardized adapters, backup/restore phases and the restricted files installed by sync. `scripts/core/registry.sh` validates both registries before use, rejects unknown handlers, unsafe paths, missing hooks, duplicate identifiers, missing dependencies and dependency cycles, and computes deterministic dependency order.
+## Resource considerations
 
-Registry metadata is declarative: JSON cannot contain commands and is never passed to `eval`. Handler and hook names are selected from fixed allowlists. The PostgreSQL, Redis and MinIO adapters delegate to the existing modules, preserving current resource names and behavior. A service can therefore be registered, enabled and healthy as infrastructure while separately being available for project provisioning. Project manifests record whether that capability is provisioned for one project.
-
-The registry is also the source for Standalone deployment validation, portable secret setup, aggregate backup order, restore preparation phases and installed-file synchronization. Dockhand remains the Compose owner in GitOps mode; adding a registered stack does not automatically register or deploy it in Dockhand.
-
-## Resource baseline (24 November 2026)
-
-| Component | Configured memory limit | Observed working usage |
-|---|---:|---:|
-| Redis | 128 MiB | 8.96 MiB |
-| PgBouncer | 64 MiB | 0.85 MiB |
-| PostgreSQL | 256 MiB | 5.91 MiB |
-| Traefik | 128 MiB | 18.59 MiB |
-| MinIO | 384 MiB | 85.39 MiB |
-| Dockhand | No smaller explicit limit evidenced | 102.90 MiB |
-
-Host: 836 MiB visible RAM, 389 MiB available; 497 MiB swap used out of 2 GiB; disk 8.7/29 GB used. This is an idle/low-load sample, not a capacity guarantee. Limits are not reserved RAM and their sum exceeds physical memory. Monitor swap activity and OOM events. Redis maxmemory 48 MiB, allkeys-lru; PostgreSQL shared_buffers 64 MB, max_connections 30; PgBouncer transaction pool, default pool size 5, max DB connections 10. MinIO restart policy was deliberately disabled in the earlier setup; review restart behavior before unattended recovery.
+The existing Compose files cap Redis at 128 MiB, PgBouncer at 64 MiB, PostgreSQL at 256 MiB, Traefik at 128 MiB and MinIO at 384 MiB. Those are limits, not reserved RAM. Docker, Dockhand, the OS, backups and workload need additional headroom. The setup script creates 2 GiB swap when none exists; swap is not a substitute for capacity testing. MinIO now uses `unless-stopped` restart policy. Validate under your own workload before selecting a VPS size.

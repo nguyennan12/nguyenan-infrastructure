@@ -1,5 +1,7 @@
 # Adding an infrastructure service
 
+[Architecture](ARCHITECTURE.md) · [Project Management](PROJECT-MANAGEMENT.md) · [GitOps](GITOPS.md)
+
 Phase 3 uses two small JSON registries and trusted Bash adapters. Registration describes a service; it does not deploy, enable or initialize it automatically.
 
 ## Lifecycle states
@@ -24,7 +26,7 @@ Add an entry to `registry/stacks.json` with a lowercase identifier, Compose file
 
 ## 3. Implement the service adapter
 
-Create `scripts/services/<service>/adapter.sh` and keep its provisioning implementation in `scripts/services/<service>/provision.sh`. A project-provisionable adapter implements:
+Create `scripts/services/<service>/adapter.sh` and keep its provisioning implementation in `scripts/services/<service>/provision.sh`. A project-provisionable adapter implements the following hooks. The `backup` capability also requires `service_backup_available`; other hooks depend on declared capabilities:
 
 ```bash
 service_validate_configuration
@@ -61,12 +63,11 @@ List required files in `managed_files`. Destinations are restricted to:
 ```text
 scripts/services/<service>/adapter.sh
 scripts/services/<service>/provision.sh
-scripts/services/<service>/backup.sh
-scripts/services/<service>/restore.sh
+scripts/restore-<service>.sh
 backup/backup-*.sh
 ```
 
-Synchronization validates every mapping, installs registered files atomically, installs runtime Compose copies, and writes registry metadata last. A failed install does not advance `last-sync-commit`.
+The `source` field refers to repository files such as `scripts/services/<service>/backup.sh`; `destination` is a restricted runtime path such as `backup/backup-<service>.sh`. Synchronization stages all mappings, atomically replaces individual files, verifies contents and writes registry metadata last. A failed install does not advance `last-sync-commit`; the set of files is recoverable but not globally atomic.
 
 ## 8. Test the service
 
@@ -76,7 +77,7 @@ bash tests/run.sh
 docker compose -f stacks/<service>.yml config --quiet
 ```
 
-Test invalid paths, hooks, dependency cycles, disabled/unavailable behavior, provision/remove state, backup failures and restore phases. `tests/fixtures/extensibility` demonstrates a complete mock service without deployment.
+Test invalid paths, hooks, dependency cycles, disabled/unavailable behavior, provision/remove state, backup failures and restore phases. `tests/fixtures/extensibility` and `tests/fixtures/project-lifecycle` demonstrate mock adapters without deployment. The fixture's `mock-service` is an example, not a production service.
 
 ## 9. Enable and deploy in Standalone mode
 

@@ -1,5 +1,7 @@
 # Modular project lifecycle
 
+[Project Management](PROJECT-MANAGEMENT.md) · [Architecture](ARCHITECTURE.md) · [Backup and Restore](BACKUP-RESTORE.md)
+
 Modular provisioning is the default for all managed projects. Legacy migration is intentionally omitted. Run commands on the VPS via SSH as an authorized administrator.
 
 ## Create and inspect
@@ -29,11 +31,11 @@ sudo /opt/infra/scripts/remove-service.sh myapp --redis
 sudo /opt/infra/scripts/delete-project.sh myapp
 ```
 
-These are separate operations; run only the intended command. Confirm with `ADD myapp`, `REMOVE myapp` or `DELETE myapp`. Remove/delete are destructive: stop dependent applications, verify a successful backup and review scope first. Remove deletes only selected services, including their data. Delete removes all enabled services and metadata. MinIO deletion disables then removes the user, removes the bucket and policy; policy detach was removed after a failed test. Automatic deletion after this fix has not been retested.
+These are separate operations; run only the intended command. Confirm with `ADD myapp`, `REMOVE myapp` or `DELETE myapp`. Remove/delete are destructive: stop dependent applications, verify backup health and review scope first. The scripts run a full backup before removing resources. Remove deletes selected services, including their data; delete removes all enabled services and metadata. A project lifecycle failure may still require manual repair.
 
 ## Failure handling
 
-A failure can leave `incomplete` metadata and partially created/deleted resources. Do not blindly retry or set all flags false; do not delete the project directory first. Inspect `project.json`, logs and actual service resources; verify backups. Coordinate with provisioning/sync locks. Repair only the affected resources, update metadata only after verification, and preserve unrelated applications. The current scripts do not provide automatic resume/rollback for incomplete projects. The prior modulartest MinIO cleanup was manual.
+A failure can leave `incomplete` metadata and partially created/deleted resources. Do not blindly retry or set all flags false; do not delete the project directory first. Inspect `project.json`, logs and actual service resources; verify backups. Coordinate with provisioning/sync locks. Repair only the affected resources, update metadata only after verification, and preserve unrelated applications. The current scripts do not provide automatic resume/rollback for incomplete projects.
 
 ## Backend environment example
 

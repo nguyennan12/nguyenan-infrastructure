@@ -1,5 +1,7 @@
 # Security
 
+[Architecture](ARCHITECTURE.md) · [Configuration](CONFIGURATION.md) · [Troubleshooting](TROUBLESHOOTING.md)
+
 ## Network policy
 
 | TCP port | Purpose | Target policy |
@@ -11,7 +13,7 @@
 | 6380 | Redis TLS | Backend egress IP allowlist |
 | 3000, 9090, 8080, 9000, 9001, 5432, 6432, 6379 | Internal/management | Not public |
 
-The database and Redis TLS ports were opened for connectivity testing. Restrict them to known backend outbound IPs before production use. TLS protects traffic but does not prevent brute-force attempts or resource exhaustion. Azure default VNet rules may permit internal VNet access; use loopback bindings and evaluate lateral access separately.
+Restrict database and Redis TLS ports to known backend outbound IPs where practical. TLS protects traffic but does not prevent brute-force attempts or resource exhaustion. Cloud virtual-network rules may permit lateral access; evaluate them separately from public firewall policy.
 
 ## Authentication
 
@@ -37,12 +39,12 @@ Registry files are untrusted input until validation succeeds. Validation confine
 
 ## Hardening and monitoring
 
-Check Ubuntu security updates, Docker log rotation, resource pressure, open sockets and Azure NSG. Use `sudo ss -lntup`, `sudo docker ps`, `sudo sshd -T`, `sudo docker info` and inspect log configuration. Apply configuration changes deliberately; Docker daemon changes may require restart and recreated containers. Verify updates and access after changes. Security hardening is a checklist to complete, not a claim that this host is fully hardened.
+Check Ubuntu security updates, Docker log rotation, resource pressure, open sockets and cloud firewall policy. Use `sudo ss -lntup`, `sudo docker ps`, `sudo sshd -T`, `sudo docker info` and inspect log configuration. Apply configuration changes deliberately; Docker daemon changes may require restart and recreated containers. Verify updates and access after changes. Security hardening is a checklist to complete, not a claim that every host is fully hardened.
 
 ## GitOps and root execution trust
 
-The GitHub repository is private; a read-only deploy key is used by the VPS checkout. CI promotes main to production with write permission only for the promotion job. Restrict repository collaborators, secure GitHub accounts with MFA, review changes to shell scripts/workflows, and protect branches when feasible. Branch protection is not currently enabled. Any malicious approved script update can execute with root privileges through scheduled tasks. Gitleaks is helpful but does not prove that no secrets exist.
+The VPS checkout can use a read-only deploy key; CI promotes `main` to `production` with write permission only for its promotion job. Restrict repository collaborators, secure GitHub accounts with MFA, review changes to shell scripts/workflows and configure branch protection appropriate to the deployment workflow. Verify the current repository visibility and rulesets on GitHub; this document does not assert their live status. Any malicious approved script update can execute with root privileges through scheduled tasks. Gitleaks is helpful but does not prove that no secrets exist.
 
 ## Current gaps and decisions
 
-Public TLS database/cache ports were intentionally left open to Any in NSG for now; allowlisting is recommended before exposing real workloads. No password rotation is claimed. Verify management sockets, TLS certificate validation and permissions after updates. Never expose the Docker socket or administrative consoles publicly. MinIO image maintenance and mutable tags (`latest`, major-only tags) need review; pin tested versions or digests before relying on reproducible recovery. There is no demonstrated HA, tenant resource quota or full independent-host restore. Do not publish live `.env`, backup configuration or restored files. Keep an offline copy of the Restic password and original OAuth app details.
+Restrict public TLS database/cache ports to intended client sources where practical; confirm actual cloud firewall rules on each host. Verify management sockets, TLS certificate validation and permissions after updates. Never expose the Docker socket or administrative consoles publicly. MinIO image maintenance and mutable tags (`latest`, major-only tags) need review; pin tested versions or digests before relying on reproducible recovery. There is no demonstrated HA, tenant resource quota or full independent-host restore. Do not publish live `.env`, backup configuration or restored files. Keep an offline copy of the Restic password and original OAuth app details.
