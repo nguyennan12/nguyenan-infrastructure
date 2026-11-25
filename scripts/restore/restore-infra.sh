@@ -190,6 +190,15 @@ else
     echo "Registry not present in this older snapshot; use the trusted repository registry after review."
 fi
 
+# Optional Phase 4.3 secret; older snapshots do not contain it. Never replace
+# a webhook configured on the recovery host and never enable the timer here.
+if [ -s "$BACKUP_DIR/config/monitoring/.discord-webhook" ]; then
+    install -d -m 700 "$INFRA_DIR/monitoring"
+    if [ ! -e "$INFRA_DIR/monitoring/.discord-webhook" ]; then
+        install -m 600 "$BACKUP_DIR/config/monitoring/.discord-webhook" "$INFRA_DIR/monitoring/.discord-webhook"
+    fi
+fi
+
 # Restore infrastructure domain configuration
 echo "[*] Handling infrastructure domain configuration..."
 

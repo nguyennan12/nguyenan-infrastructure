@@ -1,0 +1,14 @@
+[Unit]
+Description=Infrastructure health monitoring
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/infra/monitoring/monitor.sh
+TimeoutStartSec=150
+UMask=0077
+Nice=10
+IOSchedulingClass=idle

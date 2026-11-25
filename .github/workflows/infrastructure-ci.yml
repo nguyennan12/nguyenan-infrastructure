@@ -94,6 +94,9 @@ jobs:
       - name: Run GitOps launcher integration tests
         run: bash tests/sync-launcher.sh
 
+      - name: Run monitoring incident tests
+        run: bash tests/monitoring.sh
+
   # ==========================================
   # 3. Secret Scanning
   # ==========================================

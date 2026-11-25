@@ -119,7 +119,7 @@ add_file() {
     resolved="$(realpath "$STAGE/$source")" || return 1
     case "$resolved" in "$STAGE/"*) ;; *) echo "Source escapes staging: $source" >&2; return 1 ;; esac
     case "$destination" in
-        "$INFRA_ROOT/scripts/"*|"$INFRA_ROOT/backup/"*|"$INFRA_ROOT/registry/"*|"$INFRA_ROOT/stacks/"*) ;;
+        "$INFRA_ROOT/scripts/"*|"$INFRA_ROOT/backup/"*|"$INFRA_ROOT/registry/"*|"$INFRA_ROOT/stacks/"*|"$INFRA_ROOT/monitoring/"*) ;;
         *) echo "Unsafe destination: $destination" >&2; return 1 ;;
     esac
     [ "$destination" != "$INFRA_ROOT/bin/sync-infra.sh" ] || return 1
@@ -159,6 +159,9 @@ scripts/restore/restore-infra.sh	restore-infra.sh
 EOF
 add_file scripts/core/common.sh "$SCRIPTS_DIR/core/common.sh"
 add_file scripts/core/registry.sh "$SCRIPTS_DIR/core/registry.sh"
+for name in monitor checks notify; do
+    add_file "scripts/monitoring/$name.sh" "$INFRA_ROOT/monitoring/$name.sh"
+done
 while IFS=$'\t' read -r source destination; do
     [ -n "$source" ] || continue
     [[ "$destination" =~ ^(scripts/services/[a-z0-9-]+/(adapter|provision)\.sh|scripts/restore-[a-z0-9-]+\.sh|backup/backup-[a-z0-9-]+\.sh)$ ]] || {

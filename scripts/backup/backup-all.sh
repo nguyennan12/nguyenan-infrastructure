@@ -5,6 +5,21 @@ set -uo pipefail
 BASE="${BACKUP_DIR:-/opt/infra/backup}"
 INFRA_ROOT="${INFRA_ROOT:-/opt/infra}"
 FAILED=0
+STATUS_FILE="$INFRA_ROOT/state/backup-status"
+
+backup_status() {
+    local result="$1" completed="$2" previous_success='' temp
+    install -d -m 700 "$INFRA_ROOT/state"
+    if [ -f "$STATUS_FILE" ]; then
+        previous_success="$(sed -n 's/^last_success=//p' "$STATUS_FILE" | head -n 1)"
+    fi
+    [ "$result" != success ] || previous_success="$completed"
+    temp="$(mktemp "$INFRA_ROOT/state/.backup-status.XXXXXX")" || return 1
+    printf 'last_attempt=%s\nlast_success=%s\nresult=%s\ncompleted=%s\n' \
+        "$BACKUP_STARTED" "$previous_success" "$result" "$completed" > "$temp"
+    chmod 600 "$temp"
+    mv -fT "$temp" "$STATUS_FILE"
+}
 
 if [ "${BACKUP_LOCK_HELD:-0}" != "1" ]; then
     exec 9>"$BASE/backup.lock"
@@ -15,6 +30,8 @@ if [ "${BACKUP_LOCK_HELD:-0}" != "1" ]; then
 fi
 
 export BACKUP_LOCK_HELD=1
+BACKUP_STARTED="$(date -u +%FT%TZ)"
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then backup_status failed "$(date -u +%FT%TZ)" || true; fi' EXIT
 
 echo "===== FULL BACKUP STARTED: $(date -Is) ====="
 
@@ -74,5 +91,11 @@ else
 fi
 
 echo "===== FULL BACKUP FINISHED: $(date -Is) ====="
+
+if [ "$FAILED" -eq 0 ]; then
+    backup_status success "$(date -u +%FT%TZ)" || exit 1
+else
+    backup_status failed "$(date -u +%FT%TZ)" || exit 1
+fi
 
 exit "$FAILED"

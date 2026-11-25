@@ -143,6 +143,16 @@ if [ -d /opt/infra/scripts/services ]; then
     chmod -R go-rwx "$STAGING/config/service-adapters"
 fi
 
+if [ -s /opt/infra/monitoring/.discord-webhook ]; then
+    install -d -m 700 "$STAGING/config/monitoring"
+    install -m 600 /opt/infra/monitoring/.discord-webhook "$STAGING/config/monitoring/.discord-webhook"
+    for unit in infra-monitor.service infra-monitor.timer; do
+        if [ -f "/etc/systemd/system/$unit" ]; then
+            install -m 600 "/etc/systemd/system/$unit" "$STAGING/config/monitoring/$unit"
+        fi
+    done
+fi
+
 # Recovery references for the GitOps controller; transient locks and workers
 # are deliberately excluded from the encrypted infrastructure snapshot.
 if [ -f /opt/infra/bin/sync-infra.sh ]; then

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run infrastructure monitoring every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+AccuracySec=10s
+Unit=infra-monitor.service
+
+[Install]
+WantedBy=timers.target
