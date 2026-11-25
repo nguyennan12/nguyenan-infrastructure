@@ -40,13 +40,16 @@ configs/
   systemd/infra-sync.service
   systemd/infra-sync.timer
 scripts/
-  bootstrap.sh, setup-*.sh
-  deploy.sh, update.sh
-  backup-*.sh, maintenance.sh
-  restore-*.sh
-  create-project.sh, add-service.sh, remove-service.sh
-  delete-project.sh, list-projects.sh, sync-infra.sh
-  lib/common.sh, postgres.sh, redis.sh, minio.sh
+  bootstrap.sh
+  core/{common,registry}.sh
+  setup/setup-*.sh
+  deployment/{deploy,update,sync-infra}.sh
+  projects/{orchestrator,create-project,add-service,remove-service,delete-project,list-projects,list-services}.sh
+  backup/{backup-all,backup-infra,maintenance}.sh
+  restore/{restore-all,restore-infra}.sh
+  services/{postgres,redis,minio}/{adapter,provision,backup,restore}.sh
+  validation/validate-registry.sh
+registry/{stacks,services}.json
 stacks/{gateway,database,cache,storage}.yml
 docs/
 infrastructure.env.example
@@ -64,6 +67,7 @@ README.md
 - [Disaster recovery](docs/DISASTER-RECOVERY.md): backup and recovery procedure.
 - [Security](docs/SECURITY.md): firewall, access and hardening.
 - [Create a project](docs/CREATE-PROJECT.md): provision application credentials and storage.
+- [Add a service](docs/ADD-SERVICE.md): extend stacks, project hooks, backup and restore safely.
 
 ## Backup
 
@@ -91,6 +95,7 @@ Never commit live `.env` files, OAuth tokens, Redis ACL hashes, PgBouncer userli
 ```bash
 sudo /opt/infra/scripts/create-project.sh myapp --all
 sudo /opt/infra/scripts/list-projects.sh
+sudo /opt/infra/scripts/list-services.sh
 sudo /opt/infra/scripts/add-service.sh myapp --redis
 sudo /opt/infra/backup/backup-all.sh
 ```
@@ -130,6 +135,10 @@ Standalone and Dockhand must never control the same stacks. Automatic ownership 
 Push changes to `main`. CI validates Compose and Bash, runs secret scanning, then promotes successful main pushes to `production`. Dockhand tracks production for stack deployments; a separate systemd timer tracks production for installed scripts. Both poll at approximately five-minute intervals. Revert a specific bad commit on main rather than force-pushing production. See [Deployment](docs/DEPLOYMENT.md).
 
 The repository sync allowlist now includes `setup-secrets.sh`, `deploy.sh` and `update.sh`. The already-installed production copy of `sync-infra.sh` cannot update its own allowlist; review and install that script manually if these commands are ever needed on that host. This does not activate Standalone deployment.
+
+The repository uses domain-based source directories, while installed public commands remain at their established paths such as `/opt/infra/scripts/create-project.sh`, `/opt/infra/scripts/deploy.sh` and `/opt/infra/backup/backup-all.sh`. Registry mappings install internal service files below `/opt/infra/scripts/services/` without changing cron or systemd command paths.
+
+Stack and project-service discovery is driven by the validated JSON registries in `registry/`. Metadata selects only allowlisted handlers and adapter hooks; it is never evaluated as shell code. Existing PostgreSQL, Redis and MinIO modules remain the implementation behind the standardized adapters. An existing host without an installed registry keeps the legacy wrappers and backup/restore order, so this change does not force a production migration.
 
 ## Status — 2026-11-24
 

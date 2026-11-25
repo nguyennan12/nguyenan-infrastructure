@@ -84,6 +84,8 @@ sudo /opt/infra/scripts/update.sh
 
 Deployment validates every stack before container changes, preserves names and volumes, initializes PgBouncer authentication and Redis ACL only when absent, and checks PostgreSQL, PgBouncer, Redis and MinIO readiness. It never uses destructive volume operations.
 
+Standalone stack discovery now comes from the validated registry. Dependencies determine deployment order, while explicit Compose project names preserve existing container, network and volume ownership. A registered stack is not deployed until it is enabled. Generic future stacks receive Compose validation and declared container readiness; the existing gateway/database/cache/storage handlers retain their current initialization behavior.
+
 Updates are manual. `STANDALONE_BRANCH` in `deployment.env` identifies the trusted remote branch. The updater refuses local modifications, validates the fetched commit in a temporary worktree, coordinates with deployment/backup/provisioning/restore locks, deploys without deleting data and records current and previous revisions.
 
 Rollback of infrastructure code is manual: inspect `/opt/infra/state/previous-deployed-commit`, check out that trusted revision in a clean repository, run `deploy.sh --check`, then `deploy.sh`. A code rollback cannot restore database schemas, service data, deleted objects or previous secret values.
@@ -134,6 +136,12 @@ The repository includes `bootstrap.sh`, `setup-*.sh`, and `restore-*.sh`. Bootst
 The private repository `nguyennan12/nguyenan-infrastructure` uses `main` for changes and `production` for deployments. `.github/workflows/infrastructure-ci.yml` checks Compose with non-live environment values, recursively validates Bash syntax and ShellCheck errors, scans secrets with Gitleaks, and promotes successful main pushes. Pull requests validate without promoting. This is not a runtime integration test. Branch protection is not configured by choice.
 
 Dockhand uses branch `production`, the four stack files and scheduled sync every five minutes. Keep existing stack names and secrets. A separate root systemd service/timer synchronizes the checkout `/opt/infra/repository` via a read-only GitHub deploy key, installs allowlisted backup and management scripts/modules, and records the last applied commit in `/opt/infra/state/last-sync-commit`. It coordinates with backup/provisioning locks; updates can be postponed. The sync executable `/opt/infra/bin/sync-infra.sh` and systemd units are not automatically replaced by this sync. Review and install changes to them separately; a failed install may leave some files updated.
+
+The Phase 3 sync validates source metadata and registered files before copying, restricts destinations, and installs registry metadata last so a partial copy cannot advertise unavailable code. The already-installed older sync cannot install this new registry or update itself; adoption therefore requires a reviewed manual replacement of `sync-infra.sh`, followed by one monitored sync. This does not change Dockhand ownership. Any new enabled Compose stack must also be registered manually in Dockhand with the exact registry project name and environment.
+
+### Safe script-layout transition
+
+Before promoting the first commit that removes the old flat source files, copy the reviewed `scripts/deployment/sync-infra.sh` from that same commit to a temporary root-owned file on the host, run `bash -n` on it, then atomically install it as `/opt/infra/bin/sync-infra.sh` with mode 700. Stop and inspect if the repository checkout is dirty or the validation fails. Start `infra-sync.service` once manually and verify `last-sync-commit`, installed public commands, registry validation and backup logs before relying on the timer. The old synchronizer encounters the missing old-layout `scripts/backup-all.sh` before its first install and exits under `set -e`; it cannot safely adopt the new layout by itself. Do not change the systemd `ExecStart`, cron entries, Dockhand ownership or credentials during this transition.
 
 The source allowlist includes the new management scripts, but an already-installed sync script cannot add them to itself. Manually review and install the updated `sync-infra.sh` only if those scripts are required on production. Do not enable or schedule `update.sh` on the GitOps host.
 

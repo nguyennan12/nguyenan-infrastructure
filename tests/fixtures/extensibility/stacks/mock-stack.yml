@@ -1,0 +1,12 @@
+services:
+  mock:
+    image: busybox:1.36
+    container_name: infra-mock
+    command: ["sleep", "infinity"]
+    environment:
+      MOCK_TOKEN: ${MOCK_TOKEN}
+    volumes:
+      - mock_data:/data
+
+volumes:
+  mock_data:

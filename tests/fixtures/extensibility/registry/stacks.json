@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "stacks": [
+    {
+      "id": "mock-stack",
+      "enabled": true,
+      "required": false,
+      "compose_file": "stacks/mock-stack.yml",
+      "project_name": "infra-mock",
+      "dependencies": [],
+      "containers": ["infra-mock"],
+      "volumes": ["infra-mock_data"],
+      "required_env": ["MOCK_TOKEN"],
+      "secret_file": "mock-stack.env",
+      "handler": "generic",
+      "readiness": "container-running",
+      "supports_fresh_init": false,
+      "supports_recovery": true,
+      "secrets": [{"name": "MOCK_TOKEN", "generator": "password"}]
+    }
+  ]
+}

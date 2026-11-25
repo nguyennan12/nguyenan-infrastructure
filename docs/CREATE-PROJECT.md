@@ -6,12 +6,14 @@ Modular provisioning is the default for all managed projects. Legacy migration i
 
 ```bash
 sudo /opt/infra/scripts/create-project.sh myapp --postgres --redis
+sudo /opt/infra/scripts/create-project.sh myapp --services postgres,redis
 sudo /opt/infra/scripts/list-projects.sh
+sudo /opt/infra/scripts/list-services.sh
 ```
 
-Use `--postgres`, `--redis`, `--minio`, or `--all`; omit flags for interactive selection. Enter `CREATE myapp` when prompted. Names use lowercase letters/digits, start with a letter, 3–30 characters. MinIO operations request administrator credentials interactively.
+Use `--services id1,id2`, the compatible `--postgres`, `--redis`, `--minio` flags, or `--all`; omit flags for registry-driven interactive selection. `--all` means every enabled, available project capability, not every possible infrastructure stack. `list-services.sh` distinguishes registered, enabled, currently available, deployed and healthy states. Enter `CREATE myapp` when prompted. Names use lowercase letters/digits, start with a letter, 3–30 characters. MinIO operations request administrator credentials interactively.
 Service endpoints are automatically derived from `/opt/infra/infrastructure.env` (`POSTGRES_HOST=postgres.${INFRA_DOMAIN}`, `REDIS_HOST=redis.${INFRA_DOMAIN}`, `S3_ENDPOINT=https://minio.${INFRA_DOMAIN}`).
-Credentials are generated and saved in the protected `/opt/infra/projects/myapp/.env`; do not share or commit this file. The manifest `project.json` records service flags and lifecycle status. List reads metadata, not live resource health.
+Credentials are generated and saved in the protected `/opt/infra/projects/myapp/.env`; do not share or commit this file. The manifest `project.json` records dynamic service flags and lifecycle status. The reader still accepts existing manifests containing the original three booleans. Project listing reads metadata, while service listing performs infrastructure availability and health checks.
 
 | Service | Resource names | Isolation |
 |---|---|---|

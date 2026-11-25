@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "services": [
+    {
+      "id": "mock-service",
+      "display_name": "Mock Service",
+      "stack": "mock-stack",
+      "enabled": true,
+      "dependencies": [],
+      "capabilities": ["project-provision", "health", "backup", "restore"],
+      "module": "scripts/services/mock-service/adapter.sh",
+      "project_env": ["MOCK_URL"],
+      "backup": {"script": "scripts/services/mock-service/backup.sh", "tag": "mock-service", "order": 50, "required_when_enabled": false},
+      "restore": {"script": "scripts/services/mock-service/restore.sh", "phase": "after-service-start", "order": 50},
+      "managed_files": [
+        {"source": "scripts/services/mock-service/adapter.sh", "destination": "scripts/services/mock-service/adapter.sh"},
+        {"source": "scripts/services/mock-service/backup.sh", "destination": "backup/backup-mock-service.sh"},
+        {"source": "scripts/services/mock-service/restore.sh", "destination": "scripts/restore-mock-service.sh"}
+      ]
+    }
+  ]
+}

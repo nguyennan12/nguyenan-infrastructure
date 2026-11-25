@@ -4,12 +4,34 @@ set -euo pipefail
 umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INFRA_ROOT="${INFRA_ROOT:-/opt/infra}"
+if [ -d "$INFRA_ROOT/repository/.git" ]; then
+    REPO_DIR="${REPO_DIR:-$INFRA_ROOT/repository}"
+else
+    REPO_DIR="${REPO_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+fi
 PLAN_ONLY=false
 [ "${1:-}" = "--plan" ] && PLAN_ONLY=true
 
-source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/core/common.sh"
+
+setup_script() {
+    local name="$1"
+    if [ -f "$SCRIPT_DIR/setup/$name" ]; then
+        printf '%s\n' "$SCRIPT_DIR/setup/$name"
+    else
+        printf '%s\n' "$SCRIPT_DIR/$name"
+    fi
+}
+
+deployment_script() {
+    local name="$1"
+    if [ -f "$SCRIPT_DIR/deployment/$name" ]; then
+        printf '%s\n' "$SCRIPT_DIR/deployment/$name"
+    else
+        printf '%s\n' "$SCRIPT_DIR/$name"
+    fi
+}
 
 prompt_yes_no() {
     local prompt="$1"
@@ -114,10 +136,10 @@ DEPLOYMENT_CONFIG_PREEXISTED=false
 [ -e "$INFRA_ROOT/infrastructure.env" ] && INFRA_CONFIG_PREEXISTED=true
 [ -e "$INFRA_ROOT/deployment.env" ] && DEPLOYMENT_CONFIG_PREEXISTED=true
 
-bash "$SCRIPT_DIR/setup-system.sh"
-bash "$SCRIPT_DIR/setup-docker.sh"
-bash "$SCRIPT_DIR/setup-network.sh"
-bash "$SCRIPT_DIR/setup-directories.sh"
+bash "$(setup_script setup-system.sh)"
+bash "$(setup_script setup-docker.sh)"
+bash "$(setup_script setup-network.sh)"
+REPO_DIR="$REPO_DIR" bash "$(setup_script setup-directories.sh)"
 
 if $INFRA_CONFIG_PREEXISTED; then
     EXISTING_DOMAIN="$(read_config_value "$INFRA_ROOT/infrastructure.env" INFRA_DOMAIN || true)"
@@ -148,16 +170,16 @@ else
 fi
 
 if $INSTALL_COCKPIT; then
-    bash "$SCRIPT_DIR/setup-cockpit.sh"
+    bash "$(setup_script setup-cockpit.sh)"
 fi
 
 if [ "$INSTALL_TYPE" = "fresh" ]; then
-    bash "$SCRIPT_DIR/setup-secrets.sh"
+    bash "$(setup_script setup-secrets.sh)"
 
     if [ "$INSTALL_MODE" = "standalone" ]; then
-        REPO_DIR="$REPO_DIR" bash "$SCRIPT_DIR/deploy.sh"
+        REPO_DIR="$REPO_DIR" bash "$(deployment_script deploy.sh)"
     else
-        bash "$SCRIPT_DIR/setup-dockhand.sh"
+        bash "$(setup_script setup-dockhand.sh)"
         echo "Register the four existing stack files in Dockhand using the documented project names."
         echo "Copy each required value from /opt/infra/secrets into the corresponding Dockhand stack environment."
     fi
@@ -168,8 +190,8 @@ fi
 
 if $CONFIGURE_BACKUP; then
     if [ "$INSTALL_TYPE" = "fresh" ]; then
-        if bash "$SCRIPT_DIR/setup-backup.sh" --fresh; then
-            bash "$SCRIPT_DIR/setup-cron.sh"
+        if bash "$(setup_script setup-backup.sh)" --fresh; then
+            bash "$(setup_script setup-cron.sh)"
         else
             BACKUP_RESULT=$?
             if [ "$BACKUP_RESULT" -eq 10 ]; then
@@ -179,7 +201,7 @@ if $CONFIGURE_BACKUP; then
             fi
         fi
     else
-        if bash "$SCRIPT_DIR/setup-backup.sh" --restore; then
+        if bash "$(setup_script setup-backup.sh)" --restore; then
             echo "Restore preparation never enables backup schedules automatically."
         else
             BACKUP_RESULT=$?

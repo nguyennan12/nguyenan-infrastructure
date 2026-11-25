@@ -36,7 +36,7 @@ All infrastructure endpoint hostnames are dynamically derived from a single conf
 
 This configuration is decoupled:
 - **Dockhand Stacks**: Receives `INFRA_DOMAIN` as an environment variable to interpolate Traefik router rules in `stacks/database.yml`, `stacks/cache.yml`, and `stacks/storage.yml`.
-- **VPS Provisioning Scripts**: Reads `/opt/infra/infrastructure.env` safely via `scripts/lib/common.sh` (`load_infra_config`), ensuring new projects automatically receive connection strings for the current host domain without modifying source code.
+- **VPS Provisioning Scripts**: Reads `/opt/infra/infrastructure.env` safely via `scripts/core/common.sh` (`load_infra_config`), ensuring new projects automatically receive connection strings for the current host domain without modifying source code.
 
 | Stack | Service | Persistent storage |
 |---|---|---|
@@ -88,6 +88,14 @@ flowchart TD
 Portable secrets are split by stack under `/opt/infra/secrets`; Docker Compose reads them through explicit `--env-file` arguments. GitOps users must copy the required values to Dockhand's stack environment because Dockhand does not automatically read host files. Existing production secrets remain in Dockhand.
 
 Dockhand and script sync remain independent. Script sync uses a read-only deploy key and installs allowlisted files, not arbitrary configuration or secrets; it does not update itself automatically. Provisioning is modular; each project has a protected `.env` and `project.json` service flags/status in `/opt/infra/projects/<name>/`.
+
+## Service registry and adapters
+
+`registry/stacks.json` describes Compose stacks, explicit project names, dependencies, required environment keys, readiness checks and secret generators. `registry/services.json` maps project capabilities to stacks, standardized adapters, backup/restore phases and the restricted files installed by sync. `scripts/core/registry.sh` validates both registries before use, rejects unknown handlers, unsafe paths, missing hooks, duplicate identifiers, missing dependencies and dependency cycles, and computes deterministic dependency order.
+
+Registry metadata is declarative: JSON cannot contain commands and is never passed to `eval`. Handler and hook names are selected from fixed allowlists. The PostgreSQL, Redis and MinIO adapters delegate to the existing modules, preserving current resource names and behavior. A service can therefore be registered, enabled and healthy as infrastructure while separately being available for project provisioning. Project manifests record whether that capability is provisioned for one project.
+
+The registry is also the source for Standalone deployment validation, portable secret setup, aggregate backup order, restore preparation phases and installed-file synchronization. Dockhand remains the Compose owner in GitOps mode; adding a registered stack does not automatically register or deploy it in Dockhand.
 
 ## Resource baseline (24 November 2026)
 

@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "stacks": [
+    {
+      "id": "gateway",
+      "enabled": true,
+      "required": true,
+      "compose_file": "stacks/gateway.yml",
+      "project_name": "infra-gateway",
+      "dependencies": [],
+      "containers": ["infra-traefik"],
+      "volumes": ["infra-gateway_traefik_certs"],
+      "required_env": ["ACME_EMAIL"],
+      "secret_file": "gateway.env",
+      "handler": "gateway",
+      "readiness": "container-running",
+      "supports_fresh_init": false,
+      "supports_recovery": true,
+      "secrets": [
+        {"name": "ACME_EMAIL", "generator": "prompt-email"}
+      ]
+    },
+    {
+      "id": "database",
+      "enabled": true,
+      "required": true,
+      "compose_file": "stacks/database.yml",
+      "project_name": "infra-database",
+      "dependencies": ["gateway"],
+      "containers": ["infra-postgres", "infra-pgbouncer"],
+      "volumes": ["infra-database_postgres_data"],
+      "required_env": ["INFRA_DOMAIN", "POSTGRES_PASSWORD", "PGBOUNCER_AUTH_PASSWORD"],
+      "secret_file": "database.env",
+      "handler": "database",
+      "readiness": "postgres-pgbouncer",
+      "supports_fresh_init": true,
+      "supports_recovery": true,
+      "secrets": [
+        {"name": "POSTGRES_PASSWORD", "generator": "password"},
+        {"name": "PGBOUNCER_AUTH_PASSWORD", "generator": "password"}
+      ]
+    },
+    {
+      "id": "cache",
+      "enabled": true,
+      "required": true,
+      "compose_file": "stacks/cache.yml",
+      "project_name": "infra-cache",
+      "dependencies": ["gateway"],
+      "containers": ["infra-redis"],
+      "volumes": ["infra-cache_redis_data"],
+      "required_env": ["INFRA_DOMAIN", "REDIS_PASSWORD"],
+      "secret_file": "cache.env",
+      "handler": "cache",
+      "readiness": "redis",
+      "supports_fresh_init": true,
+      "supports_recovery": true,
+      "secrets": [
+        {"name": "REDIS_PASSWORD", "generator": "password"}
+      ]
+    },
+    {
+      "id": "storage",
+      "enabled": true,
+      "required": true,
+      "compose_file": "stacks/storage.yml",
+      "project_name": "infra-storage",
+      "dependencies": ["gateway"],
+      "containers": ["infra-minio"],
+      "volumes": ["infra-storage_minio_data"],
+      "required_env": ["INFRA_DOMAIN", "MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"],
+      "secret_file": "storage.env",
+      "handler": "storage",
+      "readiness": "minio",
+      "supports_fresh_init": true,
+      "supports_recovery": true,
+      "secrets": [
+        {"name": "MINIO_ROOT_USER", "generator": "literal", "default": "infra_admin"},
+        {"name": "MINIO_ROOT_PASSWORD", "generator": "password"}
+      ]
+    }
+  ]
+}

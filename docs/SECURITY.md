@@ -33,6 +33,8 @@ The backup wrapper never logs entered OAuth or Restic secrets; OAuth prompts and
 
 The Standalone owner marker prevents an unowned existing container set from being adopted silently. Detection is a safety boundary, not a substitute for access control: only root should modify `/opt/infra`, the repository checkout or systemd units.
 
+Registry files are untrusted input until validation succeeds. Validation confines referenced files to the trusted repository or installed infrastructure root, rejects traversal and duplicate destinations, verifies dependency graphs and accepts only fixed deployment handlers, readiness types, secret generators and service hook names. No registry field is executed with `eval`. Root synchronization installs only declared files into restricted script, backup, restore and stack destinations, then publishes the registry last.
+
 ## Hardening and monitoring
 
 Check Ubuntu security updates, Docker log rotation, resource pressure, open sockets and Azure NSG. Use `sudo ss -lntup`, `sudo docker ps`, `sudo sshd -T`, `sudo docker info` and inspect log configuration. Apply configuration changes deliberately; Docker daemon changes may require restart and recreated containers. Verify updates and access after changes. Security hardening is a checklist to complete, not a claim that this host is fully hardened.
