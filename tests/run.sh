@@ -267,7 +267,12 @@ grep -Fq 'acquire_destructive_project_locks' "$REPO_DIR/scripts/projects/delete-
     fail "delete-project does not use ordered destructive locks"
 grep -Fq '/opt/infra/backup/backup-all.sh' "$REPO_DIR/scripts/projects/delete-project.sh" ||
     fail "backup-before-delete is missing"
-for component_script in backup-postgres.sh backup-redis.sh backup-minio.sh backup-infra.sh; do
+for component_script in \
+    services/postgres/backup.sh \
+    services/redis/backup.sh \
+    services/minio/backup.sh \
+    backup/backup-infra.sh
+do
     grep -Fq 'BACKUP_LOCK_HELD' "$REPO_DIR/scripts/$component_script" ||
         fail "$component_script cannot inherit the aggregate backup lock"
 done
