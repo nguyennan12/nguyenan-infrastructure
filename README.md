@@ -66,5 +66,10 @@ docs/               Operator and contributor guides
 - [Project Management](docs/PROJECT-MANAGEMENT.md) · [Add a Service](docs/ADD-SERVICE.md) · [GitOps](docs/GITOPS.md)
 - [Backup and Restore](docs/BACKUP-RESTORE.md) · [Disaster Recovery](docs/DISASTER-RECOVERY.md)
 - [Monitoring](docs/MONITORING.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Security](docs/SECURITY.md)
+- [Contributing](CONTRIBUTING.md) · [Security reporting](SECURITY.md) · [Proposed v1.0.0 notes](docs/RELEASE-NOTES-v1.0.0.md)
 
-CI checks Compose, Bash syntax, ShellCheck, registry fixtures, mock lifecycle tests, monitoring and Gitleaks before promoting `main` to `production`. It does not replace host-specific deployment and recovery testing. No release or license claim is made here.
+CI checks Compose, Bash syntax, ShellCheck, registry fixtures, mock lifecycle tests, monitoring and Gitleaks before promoting `main` to `production`. It does not replace host-specific deployment and recovery testing. No stable release has been published yet.
+
+## License
+
+Original repository content is licensed under [MIT](LICENSE), copyright 2026 Nguyen An. PostgreSQL, Redis, MinIO, Traefik, PgBouncer, Restic, Rclone, Dockhand, and other external software retain their respective licenses. See [external software licenses](THIRD-PARTY-LICENSES.md); this repository's MIT license does not change their terms.
