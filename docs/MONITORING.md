@@ -4,6 +4,8 @@ The monitor runs as a root oneshot systemd service every five minutes. It does n
 
 The existing webhook must already be at `/opt/infra/monitoring/.discord-webhook`, root owned and mode 600. The setup command preserves it:
 
+TLS checks cover enabled PostgreSQL (`postgres.<domain>:6433`, STARTTLS), Redis (`redis.<domain>:6380`, TLS) and MinIO (`minio.<domain>:443`, HTTPS). The root domain is not probed by default; set `MONITOR_ROOT_TLS=1` in the monitor service environment only when the root domain intentionally serves HTTPS.
+
 ```bash
 sudo bash /opt/infra/repository/scripts/monitoring/setup-monitoring.sh
 sudo /opt/infra/monitoring/monitor.sh --check

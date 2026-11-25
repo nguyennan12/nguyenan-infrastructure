@@ -38,7 +38,13 @@ check_tls() {
             output="$(timeout 12 openssl s_client -connect "$endpoint:$port" -servername "$endpoint" </dev/null 2>/dev/null | openssl x509 -noout -checkend "$(( ${TLS_WARN_DAYS:-14} * 86400 ))" 2>/dev/null)" || output=''
         fi
         [ "$output" = 'Certificate will not expire' ] || emit_issue "tls.$host" warning 'expired, expiring or unreachable' "valid > ${TLS_WARN_DAYS:-14} days"
-    done < <(jq -r '.stacks[] | select(.enabled == true) | if .id == "gateway" then "gateway\t443\thttps" elif .id == "database" then "postgres\t6433\tpostgres" elif .id == "cache" then "redis\t6380\ttls" elif .id == "storage" then "minio\t443\thttps" else empty end' "$INFRA_ROOT/registry/stacks.json")
+    done < <(
+        jq -r '.stacks[] | select(.enabled == true) | if .id == "database" then "postgres\t6433\tpostgres" elif .id == "cache" then "redis\t6380\ttls" elif .id == "storage" then "minio\t443\thttps" else empty end' "$INFRA_ROOT/registry/stacks.json"
+        if [ "${MONITOR_ROOT_TLS:-0}" = 1 ] &&
+           jq -e '.stacks[] | select(.id == "gateway" and .enabled == true)' "$INFRA_ROOT/registry/stacks.json" >/dev/null; then
+            printf 'gateway\t443\thttps\n'
+        fi
+    )
 }
 
 check_containers() {

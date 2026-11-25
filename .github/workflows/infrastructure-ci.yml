@@ -97,6 +97,9 @@ jobs:
       - name: Run monitoring incident tests
         run: bash tests/monitoring.sh
 
+      - name: Run monitoring TLS selection tests
+        run: bash tests/monitoring-tls.sh
+
   # ==========================================
   # 3. Secret Scanning
   # ==========================================
