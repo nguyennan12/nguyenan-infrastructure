@@ -2,7 +2,12 @@ services:
   minio:
     image: ghcr.io/coollabsio/minio:RELEASE.2025-04-22T22-12-26Z
     container_name: infra-minio
-    restart: "no"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
     mem_limit: 384m
     cpus: 0.5

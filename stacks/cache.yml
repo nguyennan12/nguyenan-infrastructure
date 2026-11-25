@@ -3,6 +3,11 @@ services:
     image: redis:8-alpine
     container_name: infra-redis
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     mem_limit: 128m
 
     command:

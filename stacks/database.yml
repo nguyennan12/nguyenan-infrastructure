@@ -3,6 +3,11 @@ services:
     image: postgres:17-alpine
     container_name: infra-postgres
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     mem_limit: 256m
 
     environment:
@@ -40,6 +45,11 @@ services:
     image: edoburu/pgbouncer:latest
     container_name: infra-pgbouncer
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     mem_limit: 64m
 
     environment:
